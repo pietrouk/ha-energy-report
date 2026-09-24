@@ -1,0 +1,67 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Energy entities",
+        "description": "Pick the lifetime energy counters for your system. Each must be a sensor with a state class of total or total_increasing - a power sensor in watts will not work, because the report reads long-term statistics. Leave House load empty and one will be calculated for you from the others.",
+        "data": {
+          "pv_energy": "Solar generated (kWh)",
+          "import_energy": "Grid imported (kWh)",
+          "export_energy": "Grid exported (kWh)",
+          "charge_energy": "Battery charged (kWh)",
+          "discharge_energy": "Battery discharged (kWh)",
+          "house_energy": "House load (kWh, optional)"
+        }
+      },
+      "rates": {
+        "title": "Prices",
+        "description": "Point these at whatever holds your current price - a tariff sensor, or an entity from a planner. It does not have to be in the sensor domain; a mirror sensor will be created so the price is recorded and every kilowatt-hour can be valued at the rate in force when it flowed. The fallback is used only for periods from before that mirror existed.",
+        "data": {
+          "import_rate": "Import price entity",
+          "export_rate": "Export price entity",
+          "rate_scale": "Price units",
+          "fallback_import_rate": "Fallback import price",
+          "fallback_export_rate": "Fallback export price",
+          "currency": "Currency symbol"
+        }
+      },
+      "delivery": {
+        "title": "Delivery and schedule",
+        "description": "Which notify service to send through, for example notify.mobile_app_phone or telegram_bot.send_message. Leave it empty to use the generate service and deliver the message yourself. The daily report can wait for sunset when that falls after the chosen time.",
+        "data": {
+          "notify_service": "Notify service",
+          "enable_daily": "Send a daily report",
+          "daily_time": "Daily time",
+          "daily_after_sunset": "Wait for sunset if later",
+          "enable_weekly": "Send a weekly report (Mondays)",
+          "weekly_time": "Weekly time",
+          "enable_monthly": "Send a monthly report (1st)",
+          "monthly_time": "Monthly time",
+          "arbitrage_sensor": "Planner savings counter (optional)",
+          "arbitrage_gate": "Only count savings when this entity...",
+          "arbitrage_gate_state": "...is in this state"
+        }
+      }
+    },
+    "error": {
+      "not_found": "That entity does not exist.",
+      "not_a_total": "That sensor has no long-term statistics. It needs a state class of total or total_increasing - pick the kWh counter, not the W power sensor."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Energy Report settings",
+        "description": "Prices, delivery and schedule. The energy entities cannot be changed here: the house load counter accumulates from them, and swapping one would leave it part one system and part another."
+      }
+    }
+  },
+  "selector": {
+    "rate_scale": {
+      "options": {
+        "per_kwh": "Whole units per kWh (0.2635)",
+        "per_kwh_minor": "Hundredths per kWh (26.35p)"
+      }
+    }
+  }
+}

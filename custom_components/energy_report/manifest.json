@@ -1,0 +1,13 @@
+{
+  "domain": "energy_report",
+  "name": "Energy Report",
+  "codeowners": ["@pietrouk"],
+  "config_flow": true,
+  "dependencies": ["recorder", "sun"],
+  "documentation": "https://github.com/pietrouk/ha-energy-report",
+  "integration_type": "service",
+  "iot_class": "calculated",
+  "issue_tracker": "https://github.com/pietrouk/ha-energy-report/issues",
+  "requirements": [],
+  "version": "0.1.0"
+}

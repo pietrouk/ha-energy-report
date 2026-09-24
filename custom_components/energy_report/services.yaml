@@ -1,0 +1,59 @@
+generate:
+  name: Generate report
+  description: >-
+    Build a report and return every figure, including the rendered message,
+    without sending anything. Use response_variable to read the result.
+  fields:
+    period:
+      name: Period
+      description: Which window to cover.
+      required: true
+      default: daily
+      selector:
+        select:
+          options: [daily, weekly, monthly]
+    entry_id:
+      name: Entry
+      description: Which Energy Report entry to use, if you have more than one.
+      selector:
+        text:
+    start:
+      name: Start
+      description: Override the window start. Both start and end must be given.
+      selector:
+        datetime:
+    end:
+      name: End
+      description: Override the window end. Both start and end must be given.
+      selector:
+        datetime:
+
+send:
+  name: Send report
+  description: >-
+    Build a report and deliver it through the configured notify service. Returns
+    the same figures as generate.
+  fields:
+    period:
+      name: Period
+      description: Which window to cover.
+      required: true
+      default: daily
+      selector:
+        select:
+          options: [daily, weekly, monthly]
+    entry_id:
+      name: Entry
+      description: Which Energy Report entry to use, if you have more than one.
+      selector:
+        text:
+    start:
+      name: Start
+      description: Override the window start. Both start and end must be given.
+      selector:
+        datetime:
+    end:
+      name: End
+      description: Override the window end. Both start and end must be given.
+      selector:
+        datetime:

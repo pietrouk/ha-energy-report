@@ -17,16 +17,23 @@ __all__ = ["window_for", "span_label"]
 def window_for(period: str, now: datetime) -> tuple[datetime, datetime]:
     """Return (start, end) for a period, as local naive-or-aware datetimes.
 
-    daily    the previous 24 hours, ending now
+    daily    the previous 24 hours, ending on the last five-minute boundary
     weekly   the Monday-to-Sunday week that just finished
     monthly  the calendar month that just finished
+
+    The daily window is snapped to a five-minute boundary so consecutive
+    reports tile exactly. Ending it at the moment of the run asked for a bucket
+    the recorder had not compiled yet, so the five minutes before each run
+    belonged to neither that report nor the next.
 
     Weekly and monthly are anchored to calendar boundaries rather than counted
     back from now, so running one late - or twice - still reports the same
     period rather than a window that slides with the clock.
     """
     if period == PERIOD_DAILY:
-        return now - timedelta(hours=24), now
+        end = now.replace(second=0, microsecond=0)
+        end -= timedelta(minutes=end.minute % 5)
+        return end - timedelta(hours=24), end
 
     if period == PERIOD_WEEKLY:
         this_monday = (now - timedelta(days=now.weekday())).replace(

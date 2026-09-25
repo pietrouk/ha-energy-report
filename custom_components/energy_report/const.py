@@ -15,7 +15,11 @@ CONF_IMPORT_ENERGY: Final = "import_energy"
 CONF_EXPORT_ENERGY: Final = "export_energy"
 CONF_CHARGE_ENERGY: Final = "charge_energy"
 CONF_DISCHARGE_ENERGY: Final = "discharge_energy"
-CONF_HOUSE_ENERGY: Final = "house_energy"
+# House load is not an input: it is worked out per bucket from the five counters
+# above, which keeps it in step with them inside every five-minute bucket.
+
+# --- optional: a PV power sensor (W, state_class measurement), for the peak.
+CONF_PV_POWER: Final = "pv_power"
 
 # --- rates. Any entity whose state is a number: a tariff sensor, or something
 # like predbat.rates that is not in the sensor domain at all and so gets no
@@ -77,3 +81,8 @@ PERIOD_RESOLUTION: Final = {
 
 # state_class values that produce a summable "change" in long-term statistics.
 STATISTIC_STATE_CLASSES: Final = {"total", "total_increasing"}
+
+# The recorder compiles each five-minute bucket a few seconds after it closes.
+# The daily window ends on a boundary; the report waits this long past it so the
+# bucket just before exists before anything is read.
+COMPILE_GRACE_SECONDS: Final = 60

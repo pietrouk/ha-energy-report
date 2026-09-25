@@ -42,12 +42,12 @@ from .const import (
     CONF_EXPORT_RATE,
     CONF_FALLBACK_EXPORT_RATE,
     CONF_FALLBACK_IMPORT_RATE,
-    CONF_HOUSE_ENERGY,
     CONF_IMPORT_ENERGY,
     CONF_IMPORT_RATE,
     CONF_MONTHLY_TIME,
     CONF_NOTIFY_SERVICE,
     CONF_PV_ENERGY,
+    CONF_PV_POWER,
     CONF_RATE_SCALE,
     CONF_WEEKLY_TIME,
     DEFAULT_CURRENCY,
@@ -62,6 +62,9 @@ from .const import (
 ENERGY_SELECTOR = EntitySelector(
     EntitySelectorConfig(domain="sensor", device_class="energy")
 )
+POWER_SELECTOR = EntitySelector(
+    EntitySelectorConfig(domain="sensor", device_class="power")
+)
 ANY_SELECTOR = EntitySelector(EntitySelectorConfig())
 
 ENERGY_SCHEMA = vol.Schema(
@@ -71,7 +74,7 @@ ENERGY_SCHEMA = vol.Schema(
         vol.Required(CONF_EXPORT_ENERGY): ENERGY_SELECTOR,
         vol.Optional(CONF_CHARGE_ENERGY): ENERGY_SELECTOR,
         vol.Optional(CONF_DISCHARGE_ENERGY): ENERGY_SELECTOR,
-        vol.Optional(CONF_HOUSE_ENERGY): ENERGY_SELECTOR,
+        vol.Optional(CONF_PV_POWER): POWER_SELECTOR,
     }
 )
 
@@ -116,7 +119,11 @@ def _delivery_schema(defaults: dict[str, Any]) -> vol.Schema:
 
 
 def _check_statistics(hass, user_input: dict[str, Any]) -> dict[str, str]:
-    """Reject entities the recorder will never produce a change for."""
+    """Reject entities the recorder will never produce the right statistic for.
+
+    Energy counters need a "change", which only total / total_increasing give.
+    The optional PV power sensor needs a "max", which only measurement gives.
+    """
     errors: dict[str, str] = {}
     for key, entity_id in user_input.items():
         if not entity_id:
@@ -124,7 +131,12 @@ def _check_statistics(hass, user_input: dict[str, Any]) -> dict[str, str]:
         state = hass.states.get(entity_id)
         if state is None:
             errors[key] = "not_found"
-        elif state.attributes.get("state_class") not in STATISTIC_STATE_CLASSES:
+            continue
+        state_class = state.attributes.get("state_class")
+        if key == CONF_PV_POWER:
+            if state_class != "measurement":
+                errors[key] = "not_a_measurement"
+        elif state_class not in STATISTIC_STATE_CLASSES:
             errors[key] = "not_a_total"
     return errors
 
@@ -165,12 +177,9 @@ class EnergyReportConfigFlow(ConfigFlow, domain=DOMAIN):
 
 
 class EnergyReportOptionsFlow(OptionsFlow):
-    """Everything except the energy entities can be changed later.
-
-    The energy entities are deliberately not editable: the house-load sensor
-    accumulates from them, so swapping one mid-life would leave a counter that
-    is part one system and part another.
-    """
+    """Prices, delivery and schedule can be changed later; the energy entities
+    cannot. Reports reach back through history, so swapping a counter mid-life
+    would price old periods from one device and new ones from another."""
 
     async def async_step_init(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
         current = {**self.config_entry.data, **self.config_entry.options}

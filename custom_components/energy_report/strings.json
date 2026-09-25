@@ -3,19 +3,19 @@
     "step": {
       "user": {
         "title": "Energy entities",
-        "description": "Pick the lifetime energy counters for your system. Each must be a sensor with a state class of total or total_increasing - a power sensor in watts will not work, because the report reads long-term statistics. Leave House load empty and one will be calculated for you from the others.",
+        "description": "Pick the lifetime energy counters for your system. Each must be a sensor with a state class of total or total_increasing - a power sensor in watts will not work, because the report reads long-term statistics. House load is worked out from these, so there is nothing to pick for it. Optionally add a solar power sensor in watts to show the day's peak.",
         "data": {
           "pv_energy": "Solar generated (kWh)",
           "import_energy": "Grid imported (kWh)",
           "export_energy": "Grid exported (kWh)",
           "charge_energy": "Battery charged (kWh)",
           "discharge_energy": "Battery discharged (kWh)",
-          "house_energy": "House load (kWh, optional)"
+          "pv_power": "Solar power (W, optional, for the peak)"
         }
       },
       "rates": {
         "title": "Prices",
-        "description": "Point these at whatever holds your current price - a tariff sensor, or an entity from a planner. It does not have to be in the sensor domain; a mirror sensor will be created so the price is recorded and every kilowatt-hour can be valued at the rate in force when it flowed. The fallback is used only for periods from before that mirror existed.",
+        "description": "Point these at whatever holds your current price - a tariff sensor, or an entity from a planner. It does not have to be in the sensor domain; a mirror sensor is created so the price is recorded and every kilowatt-hour can be valued at the rate in force when it moved. Periods from before the mirror existed use the entity's average rate if it has one, otherwise the fallback below - never the price showing at the moment the report runs, which in the evening is usually the peak.",
         "data": {
           "import_rate": "Import price entity",
           "export_rate": "Export price entity",
@@ -37,7 +37,7 @@
           "weekly_time": "Weekly time",
           "enable_monthly": "Send a monthly report (1st)",
           "monthly_time": "Monthly time",
-          "arbitrage_sensor": "Planner savings counter (optional)",
+          "arbitrage_sensor": "Planner savings counter (optional, shown as included)",
           "arbitrage_gate": "Only count savings when this entity...",
           "arbitrage_gate_state": "...is in this state"
         }
@@ -45,14 +45,15 @@
     },
     "error": {
       "not_found": "That entity does not exist.",
-      "not_a_total": "That sensor has no long-term statistics. It needs a state class of total or total_increasing - pick the kWh counter, not the W power sensor."
+      "not_a_total": "That sensor has no long-term statistics. It needs a state class of total or total_increasing - pick the kWh counter, not the W power sensor.",
+      "not_a_measurement": "That sensor has no max statistic. Pick a solar power sensor in watts with a state class of measurement."
     }
   },
   "options": {
     "step": {
       "init": {
         "title": "Energy Report settings",
-        "description": "Prices, delivery and schedule. The energy entities cannot be changed here: the house load counter accumulates from them, and swapping one would leave it part one system and part another."
+        "description": "Prices, delivery and schedule. The energy entities cannot be changed here: reports reach back through history, so swapping a counter would price old periods from one device and new ones from another."
       }
     }
   },

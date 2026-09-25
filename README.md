@@ -1,58 +1,101 @@
 # Energy Report
 
 A daily, weekly and monthly summary of where your solar, battery and grid energy
-actually went — and what it was worth — delivered through any Home Assistant
+actually went, and what it was worth, delivered through any Home Assistant
 notify service.
 
 ```
 SOLAR SUMMARY - Last 24 hours
-Thu 17 Sep 19:00 - Fri 18 Sep 19:00
+Wed 23 Sep 19:00 - Thu 24 Sep 19:00
 
 💷 Total earnings
-£2.03 home used + £0.40 battery + £0.38 exported + £0.32 arbitraged = £3.13
+£2.14 home used + £1.06 exported - £0.03 grid charging = £3.17
 
 ☀️ Solar
-Generated 12.4 kWh
-Exported 3.2 kWh, earning £0.38
+Generated 9.4 kWh, peak 3.5 kW at 11:40
+3.3 to the house, 4.6 into the battery, 1.5 exported
 
 🔋 Battery
-Supplied 2.5 kWh
-Charged 4.6 kWh, 0.6 of it from the grid, costing £0.16
-Net +2.1 kWh stored, worth +£0.40 once the grid charging is paid for
+Charged 4.7 kWh: 4.6 from solar, 0.1 from the grid costing £0.03
+Supplied 8.4 kWh: 4.0 to the house, 4.4 exported
+Net -3.7 kWh, ran on energy stored earlier
 
 🏠 House
-Used 8.1 kWh
-95% of it from solar and battery (7.7 kWh, worth £2.03)
-Bought 0.4 kWh straight from the grid, costing £0.11
+Used 7.4 kWh, 99% from solar and battery (7.3 kWh, worth £2.14)
+3.3 straight from solar, 4.0 from the battery, 0.1 bought costing £0.02
+
+⚡ Export
+5.9 kWh exported, earning £1.06: 1.5 from solar, 4.4 from the battery
+
+📈 Arbitrage
+£0.24 gained from energy arbitrage, included in the total above
 ```
 
-It works with any inverter that exposes lifetime kWh counters. No helper
-entities, no utility meters to create or keep in step — everything is read from
-the long-term statistics Home Assistant already keeps.
+That is a real day: overnight on the battery, solar refilling it, then a planner
+selling most of it back in an evening saving session.
 
-## Why not just subtract
+It works with any inverter that exposes lifetime kWh counters. There are no
+helper entities or utility meters to create and keep in step: everything is read
+from the long-term statistics Home Assistant already keeps.
 
-Two things most energy summaries get wrong, and the reason this one works bucket
-by bucket rather than over the whole period.
+## What "total earnings" means
 
-**Grid import is not all house load.** If your battery charges from the grid
-overnight, subtracting the day's import from the day's house load charges that
-charge to the house. On one real day 2.91 kWh arrived in the midnight hour while
-the house used 0.30 kWh and the battery took 2.65. The whole-period sum reported
-59% self-supply; the true figure was 95%.
+What your house's energy would have cost at the rates of the time, minus what
+you actually paid the grid, net of export income:
 
-Here the house takes solar first, then the battery, and only the shortfall is
-grid. The battery's share is worked out first and the house takes the remainder,
-so the two always add back to the import — anything that reached neither, like
-round-trip losses, lands on the house rather than quietly counting as free.
+| Term | What it is |
+|---|---|
+| **home used** | everything the house got from solar *and* from the battery, each kWh at the import rate in force when it was used |
+| **exported** | everything sold to the grid, solar or battery, at the export rate in force when it went |
+| **grid charging** | what was paid to charge the battery from the grid |
 
-**A kilowatt-hour is worth what it cost at the time.** An Octopus saving session
-lifts the import rate for one hour. A half-hourly tariff moves it all day.
-Valuing a whole period at whatever the price happens to be when the report runs
-misprices it either way, so each bucket is priced at the rate recorded for that
-bucket.
+**Battery energy is valued once, when it is used or sold, never when it goes
+in.** Valuing it on the way in as well would count the same kWh twice. So a day
+that fills the battery earns less than one that empties it, and the value shows
+up in the report for the day the energy comes back out. The Net line on the
+battery says which way it went.
 
-That needs a recorded rate, which is what the mirror sensors below are for.
+**A trade needs no term of its own.** Charge at 15p overnight and sell at 30p
+in the evening: the sale lands in *exported*, the purchase in *grid charging*,
+and the difference is the gain. The round-trip loss is already accounted for,
+because you pay for what went in and earn on what came out. If the two halves
+fall either side of a daily report's cut-off, the weekly and monthly reports
+still see the whole trade.
+
+**A planner's savings figure is shown but not added.** Predbat, for example,
+measures its savings against the same solar and load with the battery doing
+plain self-consumption. That figure is the part of the total its decisions
+made, and those decisions are already in the flows above. Adding it on top
+would count them twice.
+
+## How the energy is split
+
+Every figure is worked out per statistics bucket (five minutes for a daily
+report), not over the whole period. Over a day the house might use 7.4 kWh
+while the panels make 9.4 kWh, and those two totals alone can't tell you the
+battery supplied 4.0 kWh overnight.
+
+In each bucket, house load is what the counters say it must have been: solar +
+import + discharge − export − charge. Solar serves the house first, then fills
+the battery, then goes to the grid. The battery covers what solar couldn't, and
+anything it gave beyond that was exported. Whatever the house still needed came
+from the grid, and so did any charge solar didn't explain.
+
+Two kinds of noise within a single bucket are kept apart, so they can't pass for
+real flows:
+
+- **churn**: the battery charging and discharging within the same five minutes
+- **hunting**: the grid meter importing and exporting a few watt-hours as it settles on zero
+
+Left in, churn would show as a grid charge *and* an export, and hunting would
+look like the battery selling. In practice each amounts to a few hundredths of a
+kWh up to about 0.2 kWh a day.
+
+Every line adds up: each total is the sum of the parts printed beside it, and
+each flow reads the same wherever it appears. Solar's "into the battery" is the
+battery's "from solar". To guarantee that, each flow is rounded once and every
+total is built from the rounded parts, so a total can differ from your dashboard
+by 0.1 kWh.
 
 ## Install
 
@@ -66,75 +109,83 @@ Add this repository as a custom repository (category: Integration), then install
 Copy `custom_components/energy_report` into your `config/custom_components/`
 folder and restart.
 
-Then: **Settings → Devices & services → Add integration → Energy Report**.
+Then go to **Settings → Devices & services → Add integration → Energy Report**.
 
 ## Setting it up
 
 ### Energy entities
 
 Pick your lifetime kWh counters. **Each must be a sensor whose `state_class` is
-`total` or `total_increasing`** — that is what long-term statistics are built
-from. A power sensor in watts has no "change" to sum; the setup form rejects one
-rather than letting the report silently return zeros.
+`total` or `total_increasing`**, because that's what long-term statistics are
+built from. A power sensor in watts has no "change" to sum, so the setup form
+rejects one rather than let the report silently return zeros.
 
 | Field | Required | Notes |
 |---|---|---|
 | Solar generated | yes | lifetime PV kWh |
 | Grid imported | yes | |
 | Grid exported | yes | |
-| Battery charged | no | omit and the battery section disappears |
+| Battery charged | no | leave both battery fields empty and the battery section disappears |
 | Battery discharged | no | |
-| House load | no | leave empty and one is calculated for you |
+| Solar power | no | watts, `state_class: measurement`; adds the peak to the solar line |
 
-If you leave House load empty, a `House load energy` sensor is created from the
-others:
-
-```
-house = solar + import + discharge − export − charge
-```
-
-It accumulates the step between readings, so a counter that resets daily is
-handled, and a jump larger than 25 kWh between readings is treated as an
-integration restart rather than energy that flowed.
+There's no house-load field. House load is calculated from the counters above,
+which keeps it in step with them inside every five-minute bucket.
 
 ### Prices
 
-Point these at whatever holds your current price. It does **not** have to be a
-`sensor` — Predbat's `predbat.rates`, for example, is in its own domain and gets
-no statistics at all. A mirror sensor is created for whatever you pick, which is
-what makes historical per-bucket pricing possible.
+Point these at whatever holds your current price. It **doesn't** have to be a
+`sensor`: Predbat's `predbat.rates`, for example, is in its own domain and gets
+no statistics at all. The integration creates a mirror sensor for whatever you
+pick, which is what makes per-bucket pricing possible.
 
 Choose whether your source reports whole units (`0.2635`) or hundredths
 (`26.35p`).
 
-The fallback price is used only for buckets from before the mirror existed. A
-report covering any of those says so:
+Periods from before the mirror existed need a stand-in price. It is chosen in
+this order:
 
-> *Partly valued at the rate showing now — recorded rates do not cover this whole
+1. the price entity's `average` attribute, if it has one (Predbat does)
+2. the fallback price you configure, if it isn't zero
+3. the average of the prices recorded elsewhere in the same period
+4. the price showing now, only as a last resort
+
+The order matters. A daily report runs in the evening, which on a time-of-use
+tariff is the peak and can have a saving session on top. On the day that
+prompted this, the live price read 44p, and three-quarters of a day that really
+cost 26p was valued at it.
+
+A report that used a stand-in price says so:
+
+> *Partly valued at an estimated rate - recorded rates do not cover this whole
 > period yet.*
 
-So expect that footnote on weekly reports for a week and monthly for a month
-after install, then never again.
+Expect that on weekly reports for a week after installing and on monthly reports
+for a month, then never again.
 
 ### Delivery
 
-Give it a notify service — `notify.mobile_app_phone`,
-`telegram_bot.send_message`, anything — or leave it empty and call
-`energy_report.generate` yourself.
+Give it a notify service, such as `notify.mobile_app_phone` or
+`telegram_bot.send_message`, or leave it empty and call `energy_report.generate`
+yourself.
 
-The daily report can wait for sunset when that falls after your chosen time.
-This is compared as a **time**, never by asking the sun entity what state it is
-in: `sun.sun` flips to `below_horizon` several minutes after the astronomical
-sunset, which opens a window where neither a clock condition nor a sun condition
-is true and the report is silently skipped.
+The daily report can wait until sunset when sunset falls after your chosen time.
+The comparison uses the sunset **time** rather than the sun entity's state:
+`sun.sun` changes to `below_horizon` several minutes after the astronomical
+sunset. That leaves a gap where neither the clock condition nor the sun
+condition is true, and the report is silently skipped.
+
+The daily window ends on the last five-minute boundary, and the report waits a
+minute before reading. The recorder takes a few seconds to write each
+five-minute bucket, and without that pause the last five minutes before each
+report belonged to neither that report nor the next.
 
 ### Optional: a planner's savings figure
 
-If you run something that reports its own arbitrage savings as a running total,
-point the last three fields at it. The gate exists because a planner that is
-only watching — or stopped — has not saved you anything, and reporting its
-figure anyway would claim savings that were never made. Anything other than the
-expected gate state reports zero and says why.
+If you run something that keeps its own arbitrage savings as a running total,
+point the last three fields at it. The gate is there because a planner that is
+only watching, or is stopped, hasn't saved you anything. In any state other than
+the one you set, the report shows zero and says why.
 
 ## Services
 
@@ -149,31 +200,34 @@ data:
 response_variable: report
 ```
 
-The response carries `message` plus `solar`, `house`, `imported`, `exported`,
-`charged`, `discharged`, `grid_to_house`, `grid_to_battery`, `home_supplied`,
-`covered_percent`, `avoided`, `house_cost`, `battery_cost`, `export_income`,
-`battery_value`, `total_earnings`, `estimated`, `buckets` and
-`unpriced_buckets` — so you can build your own card or message instead.
+The response includes `message`; the totals `solar`, `house`, `imported`,
+`exported`, `charged` and `discharged`; each flow (`solar_to_house`,
+`solar_to_battery`, `solar_to_grid`, `battery_to_house`, `battery_to_grid`,
+`grid_to_house`, `grid_to_battery`) and the noise terms (`battery_churn`,
+`grid_hunting`); the money (`home_value`, `export_value`, `house_cost`,
+`battery_cost`, `total_earnings`, `arbitrage`); and `covered_percent`,
+`peak_watts`, `peak_at`, `estimated`, `buckets` and `unpriced_buckets`. That's
+enough to build your own card or message instead.
 
 ### `energy_report.send`
 
-The same, then delivers it through the configured notify service. Both accept
-`start` and `end` to override the window.
+Does the same, then sends the message through the configured notify service.
+Both services accept `start` and `end` to override the window.
 
 ## Resolution
 
 | Period | Buckets | Why |
 |---|---|---|
-| Daily | 5 minute | short-term statistics, kept for `purge_keep_days` |
+| Daily | 5 minutes | short-term statistics, kept for `purge_keep_days` |
 | Weekly | hourly | long-term statistics, kept forever |
 | Monthly | hourly | |
 
-Totals are identical at any bucket size. The split and the pricing are not. On a
-flat tariff all resolutions agree exactly. On a half-hourly tariff the daily
-report is exact — every five-minute bucket falls inside one price — while weekly
-and monthly average within the hour, so a 30-minute grid charge in the cheap half
-of an hour is priced at that hour's mean. Nothing longer-lived than hourly
-statistics exists to do better.
+Totals come out the same at any bucket size; the split and the pricing don't.
+On a flat tariff every resolution agrees. On a half-hourly tariff the daily
+report is exact, because every five-minute bucket falls within a single price.
+Weekly and monthly reports average within each hour, so a 30-minute grid charge
+in the cheap half of an hour is priced at that hour's average. Hourly is the
+finest resolution Home Assistant keeps long term, so they can't do better.
 
 ## Testing
 
@@ -181,8 +235,9 @@ statistics exists to do better.
 python3 tests/test_report.py
 ```
 
-No Home Assistant install needed: the arithmetic, the window boundaries and the
-message layout are all plain Python.
+No Home Assistant install needed. The tests cover the split and the pricing,
+check that every counter balances across 5,000 random buckets, and parse every
+kWh out of rendered messages to confirm each line adds up.
 
 ## Licence
 

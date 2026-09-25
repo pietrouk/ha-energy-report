@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from datetime import datetime, time, timedelta
 
@@ -30,15 +31,16 @@ from .const import (
     CONF_EXPORT_RATE,
     CONF_FALLBACK_EXPORT_RATE,
     CONF_FALLBACK_IMPORT_RATE,
-    CONF_HOUSE_ENERGY,
     CONF_IMPORT_ENERGY,
     CONF_IMPORT_RATE,
     CONF_MONTHLY_TIME,
     CONF_NOTIFY_DATA,
     CONF_NOTIFY_SERVICE,
     CONF_PV_ENERGY,
+    CONF_PV_POWER,
     CONF_RATE_SCALE,
     CONF_WEEKLY_TIME,
+    COMPILE_GRACE_SECONDS,
     DEFAULT_CURRENCY,
     DEFAULT_DAILY_TIME,
     DEFAULT_MONTHLY_TIME,
@@ -54,8 +56,8 @@ from .const import (
     SERVICE_GENERATE,
     SERVICE_SEND,
 )
-from .message import render
-from .report import summarise
+from .message import peak_text, render
+from .report import choose_fallback, summarise
 from .statistics import collect
 from .window import span_label, window_for
 
@@ -110,18 +112,22 @@ async def build(hass: HomeAssistant, entry: ConfigEntry, period: str,
                 start: datetime | None = None, end: datetime | None = None) -> dict:
     """Collect, price and render one report. Returns every figure, not just text."""
     config = _options(entry)
-    now = dt_util.now()
     if start is None or end is None:
-        start, end = window_for(period, now)
+        start, end = window_for(period, dt_util.now())
+        if period == PERIOD_DAILY:
+            # The window ends on a five-minute boundary. If that was only just
+            # now, the recorder has not compiled the bucket before it yet.
+            wait = (end + timedelta(seconds=COMPILE_GRACE_SECONDS) - dt_util.now()).total_seconds()
+            if wait > 0:
+                await asyncio.sleep(wait)
 
-    buckets, extras = await collect(
+    collected = await collect(
         hass,
         start,
         end,
         PERIOD_RESOLUTION.get(period, "hour"),
         {
             "pv": config.get(CONF_PV_ENERGY),
-            "house": config.get(CONF_HOUSE_ENERGY) or _own(hass, entry, "house_load_energy"),
             "imported": config.get(CONF_IMPORT_ENERGY),
             "exported": config.get(CONF_EXPORT_ENERGY),
             "charged": config.get(CONF_CHARGE_ENERGY),
@@ -131,18 +137,21 @@ async def build(hass: HomeAssistant, entry: ConfigEntry, period: str,
         _own(hass, entry, "export_rate"),
         rate_divisor=1.0,  # the mirror already normalised the units
         extra_ids={"arbitrage": config.get(CONF_ARBITRAGE_ENERGY)},
+        power_id=config.get(CONF_PV_POWER),
     )
 
     divisor = RATE_SCALES[config.get(CONF_RATE_SCALE, DEFAULT_RATE_SCALE)]
     totals = summarise(
-        buckets,
-        fallback_import_rate=_live_rate(hass, config.get(CONF_IMPORT_RATE), divisor,
-                                        config.get(CONF_FALLBACK_IMPORT_RATE, 0.0)),
-        fallback_export_rate=_live_rate(hass, config.get(CONF_EXPORT_RATE), divisor,
-                                        config.get(CONF_FALLBACK_EXPORT_RATE, 0.0)),
+        collected.buckets,
+        fallback_import_rate=_fallback_rate(
+            hass, config.get(CONF_IMPORT_RATE), divisor, config.get(CONF_FALLBACK_IMPORT_RATE),
+            [b.import_rate for b in collected.buckets]),
+        fallback_export_rate=_fallback_rate(
+            hass, config.get(CONF_EXPORT_RATE), divisor, config.get(CONF_FALLBACK_EXPORT_RATE),
+            [b.export_rate for b in collected.buckets]),
     )
 
-    arbitrage, note = _arbitrage(hass, config, extras)
+    arbitrage, note = _arbitrage(hass, config, collected.extras)
     text = render(
         totals,
         period,
@@ -151,6 +160,7 @@ async def build(hass: HomeAssistant, entry: ConfigEntry, period: str,
         arbitrage=arbitrage,
         arbitrage_note=note,
         has_battery=bool(config.get(CONF_CHARGE_ENERGY) or config.get(CONF_DISCHARGE_ENERGY)),
+        peak=peak_text(period, collected.peak_watts, collected.peak_at),
     )
 
     return {
@@ -164,16 +174,24 @@ async def build(hass: HomeAssistant, entry: ConfigEntry, period: str,
         "exported": round(totals.exported, 3),
         "charged": round(totals.charged, 3),
         "discharged": round(totals.discharged, 3),
+        "solar_to_house": round(totals.solar_to_house, 3),
+        "solar_to_battery": round(totals.solar_to_battery, 3),
+        "solar_to_grid": round(totals.solar_to_grid, 3),
+        "battery_to_house": round(totals.battery_to_house, 3),
+        "battery_to_grid": round(totals.battery_to_grid, 3),
         "grid_to_house": round(totals.grid_to_house, 3),
         "grid_to_battery": round(totals.grid_to_battery, 3),
-        "home_supplied": round(totals.home_supplied, 3),
+        "battery_churn": round(totals.battery_churn, 3),
+        "grid_hunting": round(totals.grid_hunting, 3),
         "covered_percent": round(totals.covered, 1),
-        "avoided": round(totals.avoided, 4),
+        "home_value": round(totals.home_value, 4),
+        "export_value": round(totals.export_value, 4),
         "house_cost": round(totals.house_cost, 4),
         "battery_cost": round(totals.battery_cost, 4),
-        "export_income": round(totals.export_income, 4),
-        "battery_value": round(totals.battery_value, 4),
-        "total_earnings": round(totals.total_earnings(arbitrage or 0.0), 4),
+        "total_earnings": round(totals.total_earnings, 4),
+        "arbitrage": None if arbitrage is None else round(arbitrage, 4),
+        "peak_watts": collected.peak_watts,
+        "peak_at": collected.peak_at.isoformat() if collected.peak_at else None,
         "estimated": totals.estimated,
         "buckets": totals.priced_buckets + totals.unpriced_buckets,
         "unpriced_buckets": totals.unpriced_buckets,
@@ -188,18 +206,17 @@ def _own(hass: HomeAssistant, entry: ConfigEntry, slug: str) -> str | None:
     return registry.async_get_entity_id("sensor", DOMAIN, f"{entry.entry_id}_{slug}")
 
 
-def _live_rate(hass: HomeAssistant, entity_id: str | None, divisor: float,
-               fallback: float) -> float:
-    """The price showing right now, for buckets with no recorded rate."""
-    if entity_id and (state := hass.states.get(entity_id)) is not None:
-        try:
-            return float(state.state) / divisor
-        except (TypeError, ValueError):
-            pass
-    try:
-        return float(fallback) / divisor
-    except (TypeError, ValueError):
-        return 0.0
+def _fallback_rate(hass: HomeAssistant, entity_id: str | None, divisor: float,
+                   configured: float | None, recorded: list[float | None]) -> float:
+    """Look up what choose_fallback() needs; the choice itself is in report.py."""
+    state = hass.states.get(entity_id) if entity_id else None
+    return choose_fallback(
+        state.attributes.get("average") if state is not None else None,
+        configured,
+        recorded,
+        state.state if state is not None else None,
+        divisor,
+    )
 
 
 def _arbitrage(hass: HomeAssistant, config: dict, extras: dict) -> tuple[float | None, str | None]:

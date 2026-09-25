@@ -239,6 +239,15 @@ No Home Assistant install needed. The tests cover the split and the pricing,
 check that every counter balances across 5,000 random buckets, and parse every
 kWh out of rendered messages to confirm each line adds up.
 
+```bash
+pip install homeassistant voluptuous-serialize
+python3 tests/test_config_flow.py
+```
+
+This one does need Home Assistant: it builds every setup and options form with
+Home Assistant's own selector code. A selector setting that Home Assistant
+rejects only fails when the form is built, and nothing else checks that.
+
 ## Licence
 
 MIT.

@@ -15,16 +15,6 @@ jobs:
 
   hacs:
     runs-on: ubuntu-latest
-    # While this repository is private, two of the nine HACS checks cannot pass:
-    # hacsjson and integration_manifest read their files from
-    # raw.githubusercontent.com without authentication, which 404s on a private
-    # repo, so both see None where they expect a dict. The other seven use the
-    # authenticated API or the local checkout and do pass. The result is still
-    # reported, it just does not fail the run.
-    #
-    # Delete this line when the repository goes public - by then a HACS failure
-    # means something real.
-    continue-on-error: true
     steps:
       - uses: actions/checkout@v4
       - uses: hacs/action@main
@@ -39,3 +29,13 @@ jobs:
         with:
           python-version: "3.12"
       - run: python3 tests/test_report.py
+
+  config-flow:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - run: pip install homeassistant voluptuous-serialize
+      - run: python3 tests/test_config_flow.py

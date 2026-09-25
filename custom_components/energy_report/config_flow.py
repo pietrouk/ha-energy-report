@@ -89,11 +89,13 @@ def _rates_schema(defaults: dict[str, Any]) -> vol.Schema:
                     options=["per_kwh", "per_kwh_minor"], translation_key="rate_scale"
                 )
             ),
+            # "any", not a small step: Home Assistant refuses a step below 0.001,
+            # and the whole form then fails to build with "Unknown error".
             vol.Required(CONF_FALLBACK_IMPORT_RATE, default=defaults.get(CONF_FALLBACK_IMPORT_RATE, 0.0)): NumberSelector(
-                NumberSelectorConfig(min=0, step=0.0001, mode="box")
+                NumberSelectorConfig(min=0, step="any", mode="box")
             ),
             vol.Required(CONF_FALLBACK_EXPORT_RATE, default=defaults.get(CONF_FALLBACK_EXPORT_RATE, 0.0)): NumberSelector(
-                NumberSelectorConfig(min=0, step=0.0001, mode="box")
+                NumberSelectorConfig(min=0, step="any", mode="box")
             ),
             vol.Required(CONF_CURRENCY, default=defaults.get(CONF_CURRENCY, DEFAULT_CURRENCY)): TextSelector(),
         }

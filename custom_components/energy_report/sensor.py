@@ -11,11 +11,14 @@ report ran.
 from __future__ import annotations
 
 import logging
-from datetime import timedelta
+from datetime import datetime, timedelta
 
-from datetime import datetime
-
-from homeassistant.components.sensor import SensorDeviceClass, SensorEntity, SensorStateClass
+from homeassistant.components.sensor import (
+    RestoreSensor,
+    SensorDeviceClass,
+    SensorEntity,
+    SensorStateClass,
+)
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import EntityCategory
 from homeassistant.core import Event, EventStateChangedData, HomeAssistant, callback
@@ -60,8 +63,13 @@ async def async_setup_entry(
     async_add_entities(entities)
 
 
-class RateMirror(EnergyReportEntity, SensorEntity):
-    """Copy a price into a sensor the recorder will keep statistics for."""
+class RateMirror(EnergyReportEntity, RestoreSensor):
+    """Copy a price into a sensor the recorder will keep statistics for.
+
+    The last price survives a restart. Straight after one, the source is often
+    unknown for a few minutes - Predbat republishes its entities on its next
+    cycle - and a mirror starting empty would leave those buckets unpriced.
+    """
 
     _attr_state_class = SensorStateClass.MEASUREMENT
     _attr_icon = "mdi:cash"
@@ -85,7 +93,14 @@ class RateMirror(EnergyReportEntity, SensorEntity):
 
     async def async_added_to_hass(self) -> None:
         await super().async_added_to_hass()
+        if (last := await self.async_get_last_sensor_data()) is not None:
+            try:
+                self._value = float(last.native_value)
+            except (TypeError, ValueError):
+                pass
         self._refresh()
+        if self._value is not None:
+            self.async_write_ha_state()
         self.async_on_remove(
             async_track_state_change_event(self.hass, [self._source], self._changed)
         )

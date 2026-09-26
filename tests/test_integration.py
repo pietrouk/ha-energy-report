@@ -13,7 +13,12 @@ from homeassistant import config_entries
 from homeassistant.core import HomeAssistant
 from homeassistant.data_entry_flow import FlowResultType
 from homeassistant.util import dt as dt_util
-from pytest_homeassistant_custom_component.common import MockConfigEntry, async_mock_service
+from homeassistant.core import State
+from pytest_homeassistant_custom_component.common import (
+    MockConfigEntry,
+    async_mock_service,
+    mock_restore_cache_with_extra_data,
+)
 
 from custom_components.energy_report.const import DOMAIN
 
@@ -197,6 +202,10 @@ async def test_configure_menu(hass: HomeAssistant, world) -> None:
     result = await hass.config_entries.options.async_init(entry.entry_id)
     assert result["type"] is FlowResultType.MENU
     assert set(result["menu_options"]) == {"energy", "rates", "delivery", "schedule"}
+    shown = result["description_placeholders"]
+    assert shown["delivery"] == f"Telegram to chat {CHAT}"
+    assert shown["schedule"] == "daily at 19:00 or sunset if later"
+    assert "solar sensor.pv_total" in shown["energy"] and "solar power sensor.pv_power" in shown["energy"]
 
     # Energy entities can be changed, and an optional one cleared: stored as
     # None so the value from setup does not show through.
@@ -265,3 +274,19 @@ async def test_daily_waits_for_sunset_without_the_sun_integration(hass: HomeAssi
     nxt = dt_util.as_local(dt_util.parse_datetime(
         hass.states.get("sensor.energy_report_next_daily_report").state))
     assert (nxt.hour, nxt.minute) == (12, 0)
+
+
+async def test_rate_mirror_keeps_its_price_across_a_restart(hass: HomeAssistant, world) -> None:
+    """Straight after a restart the source is often unknown - Predbat republishes
+    on its next cycle - and the mirror must hold the last price, not go blank."""
+    hass.states.async_set("sensor.tariff", "unknown")
+    mock_restore_cache_with_extra_data(hass, [(
+        State("sensor.energy_report_import_rate", "0.2547"),
+        {"native_value": 0.2547, "native_unit_of_measurement": "£/kWh"},
+    )])
+    await _setup(hass, delivery="none")
+    assert hass.states.get("sensor.energy_report_import_rate").state == "0.2547"
+
+    hass.states.async_set("sensor.tariff", "35.66")
+    await hass.async_block_till_done()
+    assert hass.states.get("sensor.energy_report_import_rate").state == "0.3566"

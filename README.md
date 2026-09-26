@@ -165,7 +165,7 @@ A report that used a stand-in price says so:
 Expect that on weekly reports for a week after installing and on monthly reports
 for a month, then never again.
 
-### Delivery
+### Messaging
 
 | Method | What you pick | Format |
 |---|---|---|
@@ -199,9 +199,10 @@ any state other than the one you set, the report shows zero and says why.
 
 ## Changing settings later
 
-**Settings → Devices & services → Energy Report → Configure** opens a menu:
-energy entities, prices and planner savings, delivery, and schedule. Each one
-saves on its own. The device page links there too (**Visit**).
+**Settings → Devices & services → Energy Report → Configure** opens a menu
+that shows what is set now, with an entry for each part: messaging (Telegram,
+phone, notify), schedule, energy entities, and prices and planner savings. Each
+one saves on its own. The device page links there too (**Visit**).
 
 Change an energy entity when you replace a device or picked the wrong one, not
 routinely. Reports reach back through history, so a weekly report covering a
@@ -216,7 +217,7 @@ The device page has the everyday controls:
 | Daily report waits for sunset | whether the daily one waits for a later sunset |
 | Send daily / weekly / monthly report now | buttons that build and send one straight away |
 | Next daily / weekly / monthly report | when each one next goes out, sunset included; unknown while that report is off |
-| Import / Export rate | the price mirrors the reports are priced from |
+| Import / Export rate | the price mirrors the reports are priced from; they keep their last price across a restart |
 
 ## Services
 

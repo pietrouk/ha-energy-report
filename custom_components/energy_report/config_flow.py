@@ -188,6 +188,60 @@ def _schedule_schema(defaults: dict[str, Any]) -> vol.Schema:
     )
 
 
+def summary(config: dict[str, Any]) -> dict[str, str]:
+    """What is set now, for the Configure menu - so it can be read without
+    opening every step."""
+    def listed(values: Any) -> str:
+        return ", ".join(str(v) for v in values) if values else ""
+
+    method = delivery_method(config)
+    if method == DELIVERY_TELEGRAM:
+        targets = [*(config.get(CONF_TELEGRAM_ENTITIES) or []),
+                   *(f"chat {c}" for c in config.get(CONF_TELEGRAM_CHAT_IDS) or [])]
+        delivery = f"Telegram to {listed(targets) or 'nobody yet'}"
+    elif method == DELIVERY_NOTIFY_ENTITY:
+        delivery = f"notify entities {listed(config.get(CONF_NOTIFY_ENTITIES)) or '(none picked)'}"
+    elif method == DELIVERY_NOTIFY_SERVICE:
+        delivery = f"the {config.get(CONF_NOTIFY_SERVICE)} service"
+    else:
+        delivery = "not sent - use the energy_report.generate action"
+
+    def on(key: str, default: bool) -> bool:
+        value = config.get(key)
+        return default if value is None else bool(value)
+
+    def hhmm(key: str, default: str) -> str:
+        return (config.get(key) or default)[:5]
+
+    parts = []
+    if on(CONF_ENABLE_DAILY, True):
+        daily = f"daily at {hhmm(CONF_DAILY_TIME, DEFAULT_DAILY_TIME)}"
+        if on(CONF_DAILY_AFTER_SUNSET, True):
+            daily += " or sunset if later"
+        parts.append(daily)
+    if on(CONF_ENABLE_WEEKLY, False):
+        parts.append(f"weekly on Mondays at {hhmm(CONF_WEEKLY_TIME, DEFAULT_WEEKLY_TIME)}")
+    if on(CONF_ENABLE_MONTHLY, False):
+        parts.append(f"monthly on the 1st at {hhmm(CONF_MONTHLY_TIME, DEFAULT_MONTHLY_TIME)}")
+
+    energy = [f"solar {config.get(CONF_PV_ENERGY)}", f"import {config.get(CONF_IMPORT_ENERGY)}",
+              f"export {config.get(CONF_EXPORT_ENERGY)}"]
+    if config.get(CONF_CHARGE_ENERGY):
+        energy.append(f"charge {config.get(CONF_CHARGE_ENERGY)}")
+    if config.get(CONF_DISCHARGE_ENERGY):
+        energy.append(f"discharge {config.get(CONF_DISCHARGE_ENERGY)}")
+    if config.get(CONF_PV_POWER):
+        energy.append(f"solar power {config.get(CONF_PV_POWER)}")
+
+    return {
+        "delivery": delivery,
+        "schedule": "; ".join(parts) or "no reports turned on",
+        "energy": ", ".join(energy),
+        "prices": (f"import {config.get(CONF_IMPORT_RATE) or '(none)'}, "
+                   f"export {config.get(CONF_EXPORT_RATE) or '(none)'}"),
+    }
+
+
 def delivery_method(config: dict[str, Any]) -> str:
     """The configured delivery method. Entries made before there was a choice
     only had a notify service, so that is what one of those is using."""
@@ -343,7 +397,9 @@ class EnergyReportOptionsFlow(OptionsFlow):
 
     async def async_step_init(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
         return self.async_show_menu(
-            step_id="init", menu_options=["energy", "rates", "delivery", "schedule"]
+            step_id="init",
+            menu_options=["delivery", "schedule", "energy", "rates"],
+            description_placeholders=summary(self._current),
         )
 
     async def async_step_energy(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:

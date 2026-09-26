@@ -29,14 +29,14 @@
         }
       },
       "delivery": {
-        "title": "Delivery",
-        "description": "How the report is sent. Telegram gets the formatted version with bold headings; other methods get plain text.",
+        "title": "Messaging",
+        "description": "How the report is sent. Telegram gets the formatted version with bold headings; other methods get plain text. The next page asks for the chat or device.",
         "data": {
           "delivery": "Send reports by"
         }
       },
       "delivery_details": {
-        "title": "Delivery details",
+        "title": "Messaging details",
         "description": "Telegram: pick the chat entities your Telegram bot created, or type chat IDs separated by commas (group chats start with a minus sign), or both.\n\nNotify entity: pick one or more, for example your phone's.\n\nNotify service: the service name, for example notify.mobile_app_my_phone.",
         "data": {
           "telegram_entities": "Telegram chats",
@@ -74,11 +74,12 @@
       "init": {
         "title": "Energy Report settings",
         "menu_options": {
+          "delivery": "Messaging (Telegram, phone, notify)",
+          "schedule": "Schedule (daily, weekly, monthly)",
           "energy": "Energy entities",
-          "rates": "Prices and planner savings",
-          "delivery": "Delivery",
-          "schedule": "Schedule"
-        }
+          "rates": "Prices and planner savings"
+        },
+        "description": "**Messaging:** {delivery}\n\n**Schedule:** {schedule}\n\n**Energy entities:** {energy}\n\n**Prices:** {prices}"
       },
       "energy": {
         "title": "Energy entities",
@@ -108,14 +109,14 @@
         }
       },
       "delivery": {
-        "title": "Delivery",
-        "description": "How the report is sent. Telegram gets the formatted version with bold headings; other methods get plain text.",
+        "title": "Messaging",
+        "description": "How the report is sent. Telegram gets the formatted version with bold headings; other methods get plain text. The next page asks for the chat or device.",
         "data": {
           "delivery": "Send reports by"
         }
       },
       "delivery_details": {
-        "title": "Delivery details",
+        "title": "Messaging details",
         "description": "Telegram: pick the chat entities your Telegram bot created, or type chat IDs separated by commas (group chats start with a minus sign), or both.\n\nNotify entity: pick one or more, for example your phone's.\n\nNotify service: the service name, for example notify.mobile_app_my_phone.",
         "data": {
           "telegram_entities": "Telegram chats",

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import html
 import logging
 import re
 from datetime import datetime, time, timedelta
@@ -317,8 +318,9 @@ def _register_services(hass: HomeAssistant) -> None:
 
 
 def plain(message: str) -> str:
-    """The message without its Telegram HTML, for anything that would show the tags."""
-    return re.sub(r"</?[a-z]+>", "", message)
+    """The message without its Telegram HTML, for anything that would show the
+    tags or the escaped "&amp;"."""
+    return html.unescape(re.sub(r"</?[a-z]+>", "", message))
 
 
 async def deliver(hass: HomeAssistant, entry: ConfigEntry, message: str) -> None:

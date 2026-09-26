@@ -11,24 +11,24 @@ Last 24 hours (Fri 25 Sep 15:10 - Sat 26 Sep 15:10)
 💷 Total earnings
 £1.86 house load saved by solar & battery
 +£0.55 exported
--£0.14 imported
+-£0.14 imported into the battery
 = £2.27
 
 ☀️ Solar
 Generated 13.5 kWh, with a power peak of 3.0 kW at 11:45
-4.0 to the house, 7.7 into the battery, 1.8 exported for £0.21
+4.0 to the house, 7.7 into the battery, 1.8 exported at 12.0p for £0.21
 
 🔋 Battery
-Charged 8.5 kWh: 7.7 from solar, 0.8 imported for £0.14
-Supplied 6.2 kWh: 3.3 to the house, 2.9 exported for £0.34
-Net +2.3 kWh, stored for later
+Charged 8.5 kWh: 7.7 from solar, 0.8 imported at 16.5p for £0.14
+Supplied 6.2 kWh: 3.3 to the house, 2.9 exported at 12.0p for £0.34
+Net +2.3 kWh, stored for later, counted when it's used
 
 🏠 House
-Used 7.7 kWh, 95% from solar and battery, 7.3 kWh worth £1.86
-4.0 straight from solar, 3.3 from the battery, 0.4 imported for £0.07
+Used 7.7 kWh, 95% from solar & battery, 7.3 kWh worth £1.86
+4.0 straight from solar, 3.3 from the battery, 0.4 imported at 16.8p for £0.07
 
 ⚡ Export
-4.7 kWh exported for £0.55: 1.8 from solar, 2.9 from the battery
+4.7 kWh exported at 12.0p for £0.55: 1.8 from solar, 2.9 from the battery
 ```
 
 That is a real day: solar filling the battery, a cheap overnight top-up from the
@@ -48,14 +48,19 @@ you actually paid the grid, net of export income:
 |---|---|
 | **house load saved by solar & battery** | everything the house got from solar *and* from the battery, each kWh at the import rate in force when it was used |
 | **exported** | everything sold to the grid, solar or battery, at the export rate in force when it went. The solar and battery lines show their share |
-| **imported** | what was paid to charge the battery from the grid |
+| **imported into the battery** | what was paid to charge the battery from the grid |
 
 The house's own grid import ("imported for" on the House line) is shown but is
 not a term: that energy would have been bought with or without solar and a
 battery, so it neither adds to nor takes from what they earned.
 
 Negative prices, such as those on Octopus Agile, keep each term's meaning and
-flip its sign: being paid to import reads "+£0.10 imported".
+flip its sign: being paid to import reads "+£0.10 imported into the battery".
+
+Every import and export shows its average price, "0.8 imported at 16.5p for
+£0.14". The price is worked out from the unrounded kWh and money, so it is the
+true average. The kWh beside it is rounded to 0.1, so multiplying the two out
+can be a penny or two away from the amount shown.
 
 Every £ adds up the same way the kWh do. Each part is rounded to the penny once
 and every total is the sum of the rounded parts, so the solar and battery
@@ -64,11 +69,12 @@ and every total is the sum of the rounded parts, so the solar and battery
 **Battery energy is valued once, when it is used or sold, never when it goes
 in.** Valuing it on the way in as well would count the same kWh twice. So a day
 that fills the battery earns less than one that empties it, and the value shows
-up in the report for the day the energy comes back out. The Net line on the
-battery says which way it went.
+up in the report for the day the energy comes back out. The battery's Net line
+says which way it went: "stored for later, counted when it's used", or "ran on
+energy stored earlier, counted now it's used".
 
 **A trade needs no term of its own.** Charge at 15p overnight and sell at 30p
-in the evening: the sale lands in *exported*, the purchase in *imported*,
+in the evening: the sale lands in *exported*, the purchase in *imported into the battery*,
 and the difference is the gain. The round-trip loss is already accounted for,
 because you pay for what went in and earn on what came out. If the two halves
 fall either side of a daily report's cut-off, the weekly and monthly reports

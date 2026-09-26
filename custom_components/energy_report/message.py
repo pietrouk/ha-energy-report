@@ -16,10 +16,16 @@ Both are kept by rounding each part once - kWh to 0.1, money to 0.01 - and
 building every total from the rounded parts. A total can then differ from the
 raw figure by 0.1 kWh or a penny; that is the price of never printing
 "4.8 kWh: 4.6 + 0.1".
+
+The price per kWh beside each import and export is the flow's own average,
+worked out from the unrounded kWh and money, so it is the true average rather
+than the rounded kWh divided into the rounded pounds.
 """
 
 from __future__ import annotations
 
+import html
+import re
 from datetime import datetime
 
 from .report import Totals
@@ -52,6 +58,26 @@ def _money(currency: str, amount: float) -> str:
 def _p(value: float) -> float:
     """Round a money part once, to what gets printed."""
     return round(value + 0.0, 2)
+
+
+# Hundredths of the currency, for the price per kWh: 16.5p rather than £0.165.
+MINOR_UNITS = {"£": "p", "€": "c", "$": "¢"}
+
+
+def _price(currency: str, value: float, kwh: float) -> str:
+    """A flow's average price per kWh: '16.5p', or '€0.165/kWh' style for a
+    currency without a known minor unit."""
+    rate = value / kwh
+    if minor := MINOR_UNITS.get(currency):
+        return f"{round(rate * 100, 1) + 0.0:.1f}{minor}"
+    return f"{currency}{round(rate, 3) + 0.0:.3f}/kWh"
+
+
+def _escape(message: str) -> str:
+    """Escape &, < and > everywhere but the <b> and <i> tags, as Telegram's HTML
+    mode requires. The title and the earnings line both carry an "&"."""
+    return "".join(part if re.fullmatch(r"</?[bi]>", part) else html.escape(part, quote=False)
+                   for part in re.split(r"(</?[bi]>)", message))
 
 
 def _duration(minutes: int) -> str:
@@ -87,7 +113,7 @@ def render(
     peak: str | None = None,
 ) -> str:
     """Build the report text. Telegram-flavoured HTML; delivery strips the tags
-    for anything that would show them."""
+    and unescapes it for anything that would show them."""
     t = totals
     s2h, s2b, s2g = _r(t.solar_to_house), _r(t.solar_to_battery), _r(t.solar_to_grid)
     b2h, b2g = _r(t.battery_to_house), _r(t.battery_to_grid)
@@ -114,6 +140,10 @@ def render(
     def money(amount: float) -> str:
         return _money(currency, amount)
 
+    def at(value: float, kwh: float) -> str:
+        """' at 16.5p': the flow's average price, from unrounded figures."""
+        return f" at {_price(currency, value, kwh)}" if kwh > 0 else ""
+
     def term(amount: float, label: str) -> str:
         """'+£0.56 exported'. Signed by what it does to the total, so a
         negative price - paid to import, or charged to export - reads
@@ -124,7 +154,7 @@ def render(
     title = "SOLAR & BATTERY REPORT" if has_battery else "SOLAR REPORT"
     earnings = [f"{money(home)} house load saved by {source}", term(exported, "exported")]
     if imported != 0:
-        earnings.append(term(-imported, "imported"))
+        earnings.append(term(-imported, "imported into the battery"))
     earnings.append(f"= {money(total)}")
 
     solar_parts = f"{_kwh(s2h)} to the house"
@@ -132,7 +162,7 @@ def render(
         solar_parts += f", {_kwh(s2b)} into the battery"
     solar_parts += f", {_kwh(s2g)} exported"
     if s2g > 0:
-        solar_parts += f" for {money(solar_sold)}"
+        solar_parts += f"{at(t.solar_export_value, t.solar_to_grid)} for {money(solar_sold)}"
 
     lines: list[str] = [
         f"<b>{title}</b>",
@@ -149,37 +179,50 @@ def render(
     if has_battery:
         if g2b > 0:
             charged = (f"Charged {_kwh(shown_charged)} kWh: {_kwh(s2b)} from solar, "
-                       f"{_kwh(g2b)} imported for {money(imported)}")
+                       f"{_kwh(g2b)} imported{at(t.battery_cost, t.grid_to_battery)} for {money(imported)}")
         elif shown_charged > 0:
             charged = f"Charged {_kwh(shown_charged)} kWh, all from solar"
         else:
             charged = "Charged nothing"
         if b2g > 0:
             supplied = (f"Supplied {_kwh(shown_supplied)} kWh: {_kwh(b2h)} to the house, "
-                        f"{_kwh(b2g)} exported for {money(battery_sold)}")
+                        f"{_kwh(b2g)} exported{at(t.battery_export_value, t.battery_to_grid)} "
+                        f"for {money(battery_sold)}")
         elif shown_supplied > 0:
             supplied = f"Supplied {_kwh(shown_supplied)} kWh, all to the house"
         else:
             supplied = "Supplied nothing"
-        sign = "+" if shown_net >= 0 else "-"
-        net = (f"Net {sign}{_kwh(abs(shown_net))} kWh, "
-               + ("stored for later" if shown_net >= 0 else "ran on energy stored earlier"))
+        # Battery energy is valued when it is used, never when it goes in, so a
+        # report that fills the battery earns less than the one that empties it.
+        # The Net line says which this is.
+        if shown_net > 0:
+            net = f"Net +{_kwh(shown_net)} kWh, stored for later, counted when it's used"
+        elif shown_net < 0:
+            net = f"Net -{_kwh(-shown_net)} kWh, ran on energy stored earlier, counted now it's used"
+        else:
+            net = "Net 0.0 kWh"
         lines += ["", "<b>🔋 Battery</b>", charged, supplied, net]
 
     house_parts = f"{_kwh(s2h)} straight from solar"
     if has_battery:
         house_parts += f", {_kwh(b2h)} from the battery"
     if g2h > 0:
-        house_parts += f", {_kwh(g2h)} imported for {money(house_imported)}"
+        house_parts += f", {_kwh(g2h)} imported{at(t.house_cost, t.grid_to_house)} for {money(house_imported)}"
     lines += [
         "",
         "<b>🏠 House</b>",
-        f"Used {_kwh(shown_house)} kWh, {t.covered:.0f}% from {source.replace('&', 'and')}, "
+        f"Used {_kwh(shown_house)} kWh, {t.covered:.0f}% from {source}, "
         f"{_kwh(shown_home)} kWh worth {money(home)}",
         house_parts,
     ]
 
-    export = f"{_kwh(shown_export)} kWh exported for {money(exported)}"
+    # The average over what is shown: a flow printed as 0.0 kWh is left out of
+    # the kWh as it is left out of the money.
+    sold_kwh = ((t.solar_to_grid if s2g > 0 else 0.0)
+                + (t.battery_to_grid if has_battery and b2g > 0 else 0.0))
+    sold_value = ((t.solar_export_value if s2g > 0 else 0.0)
+                  + (t.battery_export_value if has_battery and b2g > 0 else 0.0))
+    export = f"{_kwh(shown_export)} kWh exported{at(sold_value, sold_kwh)} for {money(exported)}"
     if has_battery and b2g > 0:
         export += f": {_kwh(s2g)} from solar, {_kwh(b2g)} from the battery"
     elif shown_export > 0:
@@ -204,4 +247,4 @@ def render(
                     "priced at an estimated rate.")
         lines += ["", f"<i>{note}</i>"]
 
-    return "\n".join(lines)
+    return _escape("\n".join(lines))

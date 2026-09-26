@@ -4,6 +4,7 @@
 usage: python3 tests/test_report.py
 """
 import contextlib
+import html
 import importlib
 import io
 import random
@@ -40,7 +41,7 @@ def check(label, got, want):
 
 
 def plain(message):
-    return re.sub(r"</?[bi]>", "", message)
+    return html.unescape(re.sub(r"</?[bi]>", "", message))
 
 
 def section(text, heading):
@@ -56,6 +57,7 @@ def invariants(label, message):
     figure is "included in the total"; neither is a term."""
     text = plain(message)
     money = r"(-?)£(\d+\.\d\d)"
+    price = r"(?: at -?\d+\.\dp)?"
 
     def find(pattern, where, default=0.0):
         m = re.search(pattern, where, re.M)
@@ -72,7 +74,7 @@ def invariants(label, message):
     earnings = section(text, "💷 Total earnings")
     home = find(r"^" + money + " house load saved by", earnings)
     exported = contribution("exported", earnings)
-    imported = -contribution("imported", earnings)
+    imported = -contribution("imported into the battery", earnings)
     total = find(r"^= " + money + "$", earnings, None)
     check(f"{label}: earnings add up", round(home + exported - imported, 2), total)
 
@@ -81,20 +83,33 @@ def invariants(label, message):
     solar = section(text, "☀️ Solar")
     check(f"{label}: 'worth' is the house-load term", find(r"kWh worth " + money, house), home)
     check(f"{label}: the Export total is the export term",
-          find(r"kWh exported for " + money, section(text, "⚡ Export")), exported)
-    solar_sold = find(r"exported for " + money, solar)
-    battery_sold = find(r"exported for " + money, battery)
+          find(r"kWh exported" + price + " for " + money, section(text, "⚡ Export")), exported)
+    solar_sold = find(r"exported" + price + " for " + money, solar)
+    battery_sold = find(r"exported" + price + " for " + money, battery)
     check(f"{label}: solar and battery export amounts make the export term",
           round(solar_sold + battery_sold, 2), exported)
     check(f"{label}: battery 'imported for' is the imported term",
-          find(r"imported for " + money, battery), imported)
-    house_imported = find(r"imported for " + money, house)
+          find(r"imported" + price + " for " + money, battery), imported)
+    house_imported = find(r"imported" + price + " for " + money, house)
 
     body = "\n".join(l for l in text.split("☀️")[1].splitlines()
                      if "included in the total" not in l and not l.startswith("<i>"))
     allowed = {f"{abs(v):.2f}" for v in (home, exported, imported, solar_sold, battery_sold, house_imported)}
     check(f"{label}: no other money in the body",
           [a for a in re.findall(r"£(\d+\.\d\d)", body) if a not in allowed], [])
+
+    # Each price is the flow's true average: the kWh at that price gives the
+    # money, to within what rounding the kWh (0.05), the price (0.05p) and the
+    # pennies (0.005) can move it. The Export total is the sum of two rounded
+    # flows, so its kWh and pennies can each be out by twice as much.
+    off = []
+    for kwh, total, pence, sign, pounds in re.findall(
+            r"(\d+\.\d) (kWh )?(?:im|ex)ported at (-?\d+\.\d)p for (-?)£(\d+\.\d\d)", body):
+        kwh, rate, parts = float(kwh), float(pence) / 100, 2 if total else 1
+        amount = (-1 if sign else 1) * float(pounds)
+        if abs(kwh * rate - amount) > parts * (0.05 * abs(rate) + 0.005) + kwh * 0.0005 + 0.0001:
+            off.append((kwh, pence, amount))
+    check(f"{label}: every price matches its kWh and money", off, [])
 
 
 def adds_up(label, message):
@@ -131,22 +146,22 @@ def adds_up(label, message):
         else:
             only = grab(r"Supplied " + num + " kWh, all to the house")
             d_tot = b2h = only[0] if only else 0.0
-        sign, net = re.search(r"Net ([+-])" + num + " kWh", t).groups()
+        sign, net = re.search(r"Net ([+-]?)" + num + " kWh", t).groups()
         check(f"{label}: net is charged minus supplied",
               round((1 if sign == "+" else -1) * float(net), 1), round(c_tot - d_tot, 1))
 
     house = section(t, "🏠 House")
-    used, home = grab(r"Used " + num + r" kWh, \d+% from [a-z ]+, " + num + " kWh worth", where=house)
+    used, home = grab(r"Used " + num + r" kWh, \d+% from [a-z &]+, " + num + " kWh worth", where=house)
     h_sol, = grab(num + " straight from solar", where=house)
     h_bat = grab(r"straight from solar, " + num + " from the battery", (0.0,), where=house)[0]
-    h_grid = grab(num + " imported for", (0.0,), where=house)[0]
+    h_grid = grab(num + " imported", (0.0,), where=house)[0]
     check(f"{label}: house parts add up", round(h_sol + h_bat + h_grid, 1), used)
     check(f"{label}: 'worth' covers solar plus battery", round(h_sol + h_bat, 1), home)
     check(f"{label}: house 'from solar' is solar 'to the house'", h_sol, s2h)
     check(f"{label}: house 'from the battery' is the battery's 'to the house'", h_bat, b2h)
 
-    exp_tot, = grab(num + " kWh exported for")
-    split_ = grab(r"kWh exported for -?£[\d.]+: " + num + " from solar, " + num + " from the battery")
+    exp_tot, = grab(num + " kWh exported")
+    split_ = grab(r"kWh exported[^:\n]*: " + num + " from solar, " + num + " from the battery")
     e_sol, e_bat = split_ if split_ else (exp_tot, 0.0)
     check(f"{label}: export parts add up", round(e_sol + e_bat, 1), exp_tot)
     check(f"{label}: export 'from solar' is solar 'exported'", e_sol, s2g)
@@ -294,24 +309,25 @@ text = plain(render(t, "daily", "Thu 17 Sep 19:00 - Fri 18 Sep 19:00", arbitrage
 check("header and span", text.splitlines()[:2],
       ["SOLAR & BATTERY REPORT", "Last 24 hours (Thu 17 Sep 19:00 - Fri 18 Sep 19:00)"])
 check("earnings block",
-      "💷 Total earnings\n£2.03 house load saved by solar & battery\n+£0.39 exported\n-£0.16 imported\n= £2.26"
+      "💷 Total earnings\n£2.03 house load saved by solar & battery\n+£0.39 exported\n"
+      "-£0.16 imported into the battery\n= £2.26"
       in text, True)
 check("solar section with the peak",
       "Generated 12.4 kWh, with a power peak of 3.8 kW at 12:40\n"
-      "6.6 to the house, 4.0 into the battery, 1.8 exported for £0.22" in text, True)
+      "6.6 to the house, 4.0 into the battery, 1.8 exported at 12.0p for £0.22" in text, True)
 check("battery section",
-      "Charged 4.6 kWh: 4.0 from solar, 0.6 imported for £0.16\n"
-      "Supplied 2.5 kWh: 1.1 to the house, 1.4 exported for £0.17\n"
-      "Net +2.1 kWh, stored for later" in text, True)
+      "Charged 4.6 kWh: 4.0 from solar, 0.6 imported at 26.4p for £0.16\n"
+      "Supplied 2.5 kWh: 1.1 to the house, 1.4 exported at 12.0p for £0.17\n"
+      "Net +2.1 kWh, stored for later, counted when it's used" in text, True)
 check("headings are bold, emoji inside",
-      all(f"<b>{h}</b>" in render(t, "daily", "x", arbitrage=0.32) for h in
+      all(f"<b>{html.escape(h, quote=False)}</b>" in render(t, "daily", "x", arbitrage=0.32) for h in
           ("SOLAR & BATTERY REPORT", "💷 Total earnings", "☀️ Solar", "🔋 Battery", "🏠 House", "⚡ Export")), True)
 check("house section",
-      "Used 8.1 kWh, 95% from solar and battery, 7.7 kWh worth £2.03\n"
-      "6.6 straight from solar, 1.1 from the battery, 0.4 imported for £0.11" in text, True)
+      "Used 8.1 kWh, 95% from solar & battery, 7.7 kWh worth £2.03\n"
+      "6.6 straight from solar, 1.1 from the battery, 0.4 imported at 26.4p for £0.11" in text, True)
 # £0.216 from solar and £0.168 from the battery round to £0.22 and £0.17, so the
 # export prints as their sum, £0.39, not the £0.38 the raw total rounds to.
-check("export section", "3.2 kWh exported for £0.39: 1.8 from solar, 1.4 from the battery" in text, True)
+check("export section", "3.2 kWh exported at 12.0p for £0.39: 1.8 from solar, 1.4 from the battery" in text, True)
 check("arbitrage is included, not added", "£0.32 gained from energy arbitrage, included in the total above" in text, True)
 check("sections in order", [text.index(e) for e in "💷☀🔋🏠⚡📈"] == sorted(text.index(e) for e in "💷☀🔋🏠⚡📈"), True)
 invariants("normal day", text)
@@ -325,7 +341,7 @@ check("no peak clause when there is none", "power peak" in render(t, "daily", "x
 # 24 Sep's battery: 4.64 kWh from solar and 0.13 from the grid is 4.77, which
 # rounds to 4.8 - but the parts round to 4.6 and 0.1. The total is the parts' sum.
 edge = plain(render(summarise([Bucket(pv=4.64, charged=4.77, imported=0.13, import_rate=RATE)]), "daily", "x"))
-check("a total is the sum of its rounded parts", "Charged 4.7 kWh: 4.6 from solar, 0.1 imported for £0.03" in edge, True)
+check("a total is the sum of its rounded parts", "Charged 4.7 kWh: 4.6 from solar, 0.1 imported at 26.4p for £0.03" in edge, True)
 adds_up("rounding edge", edge)
 
 quiet = plain(render(summarise([Bucket(pv=5.0, charged=3.0, import_rate=RATE)]), "daily", "x"))
@@ -335,7 +351,10 @@ check("no imported term when nothing was imported", "imported" in quiet, False)
 check("stored energy is explained", "Net +3.0 kWh, stored for later" in quiet, True)
 adds_up("idle battery", quiet)
 drained = plain(render(summarise([Bucket(discharged=3.0, import_rate=RATE)]), "daily", "x"))
-check("energy stored earlier is explained", "Net -3.0 kWh, ran on energy stored earlier" in drained, True)
+check("energy stored earlier is explained",
+      "Net -3.0 kWh, ran on energy stored earlier, counted now it's used" in drained, True)
+check("a balanced battery says only that", "\nNet 0.0 kWh\n" in plain(render(summarise(
+    [Bucket(pv=2.0, charged=2.0, import_rate=RATE), Bucket(discharged=2.0, import_rate=RATE)]), "daily", "x")), True)
 adds_up("drained", drained)
 
 no_battery = plain(render(summarise([Bucket(pv=4.0, imported=1.0, exported=1.5, import_rate=RATE, export_rate=EXPORT)]),
@@ -347,7 +366,7 @@ adds_up("no battery", no_battery)
 invariants("no battery", no_battery)
 
 trade_text = plain(render(trade, "daily", "x"))
-check("a trade shows the sale on the battery line", "Supplied 4.5 kWh: 0.0 to the house, 4.5 exported for £" in trade_text, True)
+check("a trade shows the sale on the battery line", "Supplied 4.5 kWh: 0.0 to the house, 4.5 exported at " in trade_text, True)
 adds_up("trade", trade_text)
 invariants("trade", trade_text)
 
@@ -377,8 +396,8 @@ print("\n== negative and zero prices")
 # Octopus Agile goes negative: importing is paid for. The term keeps its meaning
 # and flips its sign, rather than printing "--£0.10".
 paid = plain(render(summarise([Bucket(imported=2.0, charged=2.0, import_rate=-0.05)]), "daily", "x"))
-check("paid to import reads +£ in the earnings", "\n+£0.10 imported\n= £0.10" in paid, True)
-check("and -£ on the battery line", "2.0 imported for -£0.10" in paid, True)
+check("paid to import reads +£ in the earnings", "\n+£0.10 imported into the battery\n= £0.10" in paid, True)
+check("and a negative price on the battery line", "2.0 imported at -5.0p for -£0.10" in paid, True)
 invariants("paid to import", paid)
 adds_up("paid to import", paid)
 dumped = plain(render(summarise([Bucket(pv=2.0, exported=2.0, import_rate=0.25, export_rate=-0.02)]), "daily", "x"))
@@ -386,8 +405,17 @@ check("charged to export reads -£", ("\n-£0.04 exported\n" in dumped, "= -£0.
 invariants("charged to export", dumped)
 adds_up("charged to export", dumped)
 free = plain(render(summarise([Bucket(pv=1.0, imported=1.0, import_rate=0.0)]), "daily", "x"))
-check("a free import still counts in the kWh", "1.0 imported for £0.00" in free, True)
+check("a free import still counts in the kWh", "1.0 imported at 0.0p for £0.00" in free, True)
 adds_up("free import", free)
+
+print("\n== prices and HTML")
+check("pence for pounds", _message._price("£", 0.33, 2.0), "16.5p")
+check("cents for euros", _message._price("€", 0.33, 2.0), "16.5c")
+check("a currency with no minor unit", _message._price("kr", 3.3, 2.0), "kr1.650/kWh")
+check("never -0.0p", _message._price("£", -0.00001, 1.0), "0.0p")
+raw = render(t, "daily", "x")
+check("& is escaped for Telegram", ("<b>SOLAR &amp; BATTERY REPORT</b>" in raw, " & " in raw), (True, False))
+check("and reads as & once the HTML is removed", "saved by solar & battery" in plain(raw), True)
 
 print("\n== random days: every message adds up, in kWh and in money")
 # Quietly: a failure is reported with the seed that produced it.

@@ -163,7 +163,8 @@ async def test_send_button_telegram(hass: HomeAssistant, world) -> None:
     calls = world["telegram"]
     assert len(calls) == 2
     assert all(c.data["parse_mode"] == "html" for c in calls)
-    assert "<b>SOLAR & BATTERY REPORT</b>\nLast week (" in calls[0].data["message"]
+    # Telegram's HTML mode needs & escaped; plain-text delivery unescapes it.
+    assert "<b>SOLAR &amp; BATTERY REPORT</b>\nLast week (" in calls[0].data["message"]
     assert {tuple(c.data.get("entity_id", [])) for c in calls} >= {("notify.bot_chat",)}
     assert [c.data["chat_id"] for c in calls if "chat_id" in c.data] == [[CHAT]]
 

@@ -4,10 +4,10 @@ Pure formatting, no Home Assistant imports, so the tests can assert on the exact
 text. Two rules hold the layout together, and the tests check both:
 
   * every money figure in the body traces to the earnings block: "worth" is the
-    house-load term, "imported for" is the imported term, and the solar and
-    battery "exported for" amounts add up to the export term. "Bought costing"
-    - the house's own grid purchases - is shown for information and is not a
-    term, because buying from the grid saves nothing;
+    house-load term, the battery's "imported for" is the imported term, and the
+    solar and battery "exported for" amounts add up to the export term. The
+    house's own "imported for" is shown for information and is not a term:
+    that energy would have been bought with or without solar and a battery;
   * every kWh total is the sum of the parts printed beside it, and each flow
     reads the same wherever it appears - solar's "into the battery" is the
     battery's "from solar".
@@ -101,23 +101,30 @@ def render(
     shown_export = _r(s2g + b2g)
     shown_net = _r(shown_charged - shown_supplied)
 
-    home = _p(t.home_value)
-    # A flow that prints as 0.0 kWh is worth £0.00 here too, so the export total
-    # never holds a penny that no line below shows.
+    # A flow that prints as 0.0 kWh is worth £0.00 here too, so no total holds
+    # a penny that no line below shows.
+    home = _p(t.home_value) if shown_home > 0 else 0.0
     solar_sold = _p(t.solar_export_value) if s2g > 0 else 0.0
     battery_sold = _p(t.battery_export_value) if has_battery and b2g > 0 else 0.0
     exported = _p(solar_sold + battery_sold)
-    imported = _p(t.battery_cost)
+    imported = _p(t.battery_cost) if has_battery and g2b > 0 else 0.0
+    house_imported = _p(t.house_cost) if g2h > 0 else 0.0
     total = _p(home + exported - imported)
 
     def money(amount: float) -> str:
         return _money(currency, amount)
 
+    def term(amount: float, label: str) -> str:
+        """'+£0.56 exported'. Signed by what it does to the total, so a
+        negative price - paid to import, or charged to export - reads
+        '+£0.05 imported' rather than '--£0.05 imported'."""
+        return f"{'+' if amount >= 0 else '-'}{money(abs(amount))} {label}"
+
     source = "solar & battery" if has_battery else "solar"
     title = "SOLAR & BATTERY REPORT" if has_battery else "SOLAR REPORT"
-    earnings = [f"{money(home)} house load saved by {source}", f"+{money(exported)} exported"]
-    if imported > 0:
-        earnings.append(f"-{money(imported)} imported")
+    earnings = [f"{money(home)} house load saved by {source}", term(exported, "exported")]
+    if imported != 0:
+        earnings.append(term(-imported, "imported"))
     earnings.append(f"= {money(total)}")
 
     solar_parts = f"{_kwh(s2h)} to the house"
@@ -140,7 +147,7 @@ def render(
     ]
 
     if has_battery:
-        if imported > 0 or g2b > 0:
+        if g2b > 0:
             charged = (f"Charged {_kwh(shown_charged)} kWh: {_kwh(s2b)} from solar, "
                        f"{_kwh(g2b)} imported for {money(imported)}")
         elif shown_charged > 0:
@@ -162,17 +169,17 @@ def render(
     house_parts = f"{_kwh(s2h)} straight from solar"
     if has_battery:
         house_parts += f", {_kwh(b2h)} from the battery"
-    if t.house_cost >= 0.005:
-        house_parts += f", {_kwh(g2h)} bought costing {money(t.house_cost)}"
+    if g2h > 0:
+        house_parts += f", {_kwh(g2h)} imported for {money(house_imported)}"
     lines += [
         "",
         "<b>🏠 House</b>",
-        f"Used {_kwh(shown_house)} kWh, {t.covered:.0f}% from {source.replace('&', 'and')} "
-        f"({_kwh(shown_home)} kWh, worth {money(home)})",
+        f"Used {_kwh(shown_house)} kWh, {t.covered:.0f}% from {source.replace('&', 'and')}, "
+        f"{_kwh(shown_home)} kWh worth {money(home)}",
         house_parts,
     ]
 
-    export = f"{_kwh(shown_export)} kWh exported, earning {money(exported)}"
+    export = f"{_kwh(shown_export)} kWh exported for {money(exported)}"
     if has_battery and b2g > 0:
         export += f": {_kwh(s2g)} from solar, {_kwh(b2g)} from the battery"
     elif shown_export > 0:

@@ -24,11 +24,11 @@ Supplied 6.2 kWh: 3.3 to the house, 2.9 exported for £0.34
 Net +2.3 kWh, stored for later
 
 🏠 House
-Used 7.7 kWh, 95% from solar and battery (7.3 kWh, worth £1.86)
-4.0 straight from solar, 3.3 from the battery, 0.4 bought costing £0.07
+Used 7.7 kWh, 95% from solar and battery, 7.3 kWh worth £1.86
+4.0 straight from solar, 3.3 from the battery, 0.4 imported for £0.07
 
 ⚡ Export
-4.7 kWh exported, earning £0.55: 1.8 from solar, 2.9 from the battery
+4.7 kWh exported for £0.55: 1.8 from solar, 2.9 from the battery
 ```
 
 That is a real day: solar filling the battery, a cheap overnight top-up from the
@@ -50,8 +50,12 @@ you actually paid the grid, net of export income:
 | **exported** | everything sold to the grid, solar or battery, at the export rate in force when it went. The solar and battery lines show their share |
 | **imported** | what was paid to charge the battery from the grid |
 
-The house's own grid purchases ("bought costing" on the House line) are shown
-but are not a term: buying from the grid saves nothing.
+The house's own grid import ("imported for" on the House line) is shown but is
+not a term: that energy would have been bought with or without solar and a
+battery, so it neither adds to nor takes from what they earned.
+
+Negative prices, such as those on Octopus Agile, keep each term's meaning and
+flip its sign: being paid to import reads "+£0.10 imported".
 
 Every £ adds up the same way the kWh do. Each part is rounded to the penny once
 and every total is the sum of the rounded parts, so the solar and battery

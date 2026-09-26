@@ -43,45 +43,56 @@ def plain(message):
     return re.sub(r"</?[bi]>", "", message)
 
 
+def section(text, heading):
+    """One paragraph of the message, from its heading to the next blank line."""
+    return text.split(heading, 1)[1].split("\n\n", 1)[0] if heading in text else ""
+
+
 def invariants(label, message):
     """The earnings block adds up, and every £ in the body traces to it:
-    "worth" is the house-load term, "imported for" the imported term, and the
-    solar and battery "exported for" amounts sum to the export term. "Bought
-    costing" is informational and a planner's figure is "included in the
-    total"; neither is a term."""
+    "worth" is the house-load term, the battery's "imported for" the imported
+    term, and the solar and battery "exported for" amounts sum to the export
+    term. The house's own "imported for" is informational and a planner's
+    figure is "included in the total"; neither is a term."""
     text = plain(message)
     money = r"(-?)£(\d+\.\d\d)"
 
-    def amount(pattern, default=None):
-        m = re.search(pattern, text)
+    def find(pattern, where, default=0.0):
+        m = re.search(pattern, where, re.M)
         if not m:
             return default
-        sign, value = m.groups()[-2:]
-        return round((-1 if sign else 1) * float(value), 2)
+        sign, amount = m.groups()[-2:]
+        return round((-1 if sign else 1) * float(amount), 2)
 
-    home = amount(money + " house load saved by")
-    exported = amount(r"\+" + money + " exported")
-    imported = amount(r"\n-" + money + " imported", 0.0)
-    total = amount(r"= " + money)
+    def contribution(label_, where):
+        """A signed earnings term: '+£0.56 exported' is +0.56."""
+        m = re.search(r"^([+-])£(\d+\.\d\d) " + label_ + "$", where, re.M)
+        return round((1 if m.group(1) == "+" else -1) * float(m.group(2)), 2) if m else 0.0
+
+    earnings = section(text, "💷 Total earnings")
+    home = find(r"^" + money + " house load saved by", earnings)
+    exported = contribution("exported", earnings)
+    imported = -contribution("imported", earnings)
+    total = find(r"^= " + money + "$", earnings, None)
     check(f"{label}: earnings add up", round(home + exported - imported, 2), total)
 
-    check(f"{label}: 'worth' is the house-load term", amount(r"worth " + money), home)
-    check(f"{label}: 'earning' is the export term", amount(r"earning " + money), exported)
-    solar_line = text.split("☀️ Solar")[1].split("\n\n")[0]
-    battery_line = text.split("🔋 Battery")[1].split("\n\n")[0] if "🔋" in text else ""
-    s_m = re.search(r"exported for " + money, solar_line)
-    b_m = re.search(r"exported for " + money, battery_line)
-    solar_sold = float(s_m.group(2)) if s_m else 0.0
-    battery_sold = float(b_m.group(2)) if b_m else 0.0
+    house = section(text, "🏠 House")
+    battery = section(text, "🔋 Battery")
+    solar = section(text, "☀️ Solar")
+    check(f"{label}: 'worth' is the house-load term", find(r"kWh worth " + money, house), home)
+    check(f"{label}: the Export total is the export term",
+          find(r"kWh exported for " + money, section(text, "⚡ Export")), exported)
+    solar_sold = find(r"exported for " + money, solar)
+    battery_sold = find(r"exported for " + money, battery)
     check(f"{label}: solar and battery export amounts make the export term",
           round(solar_sold + battery_sold, 2), exported)
-    i_m = re.search(r"imported for " + money, battery_line)
     check(f"{label}: battery 'imported for' is the imported term",
-          float(i_m.group(2)) if i_m else 0.0, imported)
+          find(r"imported for " + money, battery), imported)
+    house_imported = find(r"imported for " + money, house)
+
     body = "\n".join(l for l in text.split("☀️")[1].splitlines()
-                     if "costing" not in l and "included in the total" not in l
-                     and not l.startswith("<i>"))
-    allowed = {f"{v:.2f}" for v in (home, exported, imported, solar_sold, battery_sold)}
+                     if "included in the total" not in l and not l.startswith("<i>"))
+    allowed = {f"{abs(v):.2f}" for v in (home, exported, imported, solar_sold, battery_sold, house_imported)}
     check(f"{label}: no other money in the body",
           [a for a in re.findall(r"£(\d+\.\d\d)", body) if a not in allowed], [])
 
@@ -92,8 +103,8 @@ def adds_up(label, message):
     t = plain(message)
     num = r"(-?\d+(?:\.\d+)?)"
 
-    def grab(pattern, default=None):
-        m = re.search(pattern, t)
+    def grab(pattern, default=None, where=None):
+        m = re.search(pattern, t if where is None else where)
         return tuple(float(g) for g in m.groups()) if m else default
 
     gen, = grab(r"Generated " + num + " kWh")
@@ -124,17 +135,18 @@ def adds_up(label, message):
         check(f"{label}: net is charged minus supplied",
               round((1 if sign == "+" else -1) * float(net), 1), round(c_tot - d_tot, 1))
 
-    used, home = grab(r"Used " + num + r" kWh, \d+% from [a-z ]+ \(" + num + " kWh")
-    h_sol, = grab(num + " straight from solar")
-    h_bat = grab(r"straight from solar, " + num + " from the battery", (0.0,))[0]
-    bought = grab(num + " bought costing", (0.0,))[0]
-    check(f"{label}: house parts add up", round(h_sol + h_bat + bought, 1), used)
-    check(f"{label}: home used is solar plus battery", round(h_sol + h_bat, 1), home)
+    house = section(t, "🏠 House")
+    used, home = grab(r"Used " + num + r" kWh, \d+% from [a-z ]+, " + num + " kWh worth", where=house)
+    h_sol, = grab(num + " straight from solar", where=house)
+    h_bat = grab(r"straight from solar, " + num + " from the battery", (0.0,), where=house)[0]
+    h_grid = grab(num + " imported for", (0.0,), where=house)[0]
+    check(f"{label}: house parts add up", round(h_sol + h_bat + h_grid, 1), used)
+    check(f"{label}: 'worth' covers solar plus battery", round(h_sol + h_bat, 1), home)
     check(f"{label}: house 'from solar' is solar 'to the house'", h_sol, s2h)
     check(f"{label}: house 'from the battery' is the battery's 'to the house'", h_bat, b2h)
 
-    exp_tot, = grab(num + " kWh exported, earning")
-    split_ = grab(r"earning £[\d.]+: " + num + " from solar, " + num + " from the battery")
+    exp_tot, = grab(num + " kWh exported for")
+    split_ = grab(r"kWh exported for -?£[\d.]+: " + num + " from solar, " + num + " from the battery")
     e_sol, e_bat = split_ if split_ else (exp_tot, 0.0)
     check(f"{label}: export parts add up", round(e_sol + e_bat, 1), exp_tot)
     check(f"{label}: export 'from solar' is solar 'exported'", e_sol, s2g)
@@ -295,11 +307,11 @@ check("headings are bold, emoji inside",
       all(f"<b>{h}</b>" in render(t, "daily", "x", arbitrage=0.32) for h in
           ("SOLAR & BATTERY REPORT", "💷 Total earnings", "☀️ Solar", "🔋 Battery", "🏠 House", "⚡ Export")), True)
 check("house section",
-      "Used 8.1 kWh, 95% from solar and battery (7.7 kWh, worth £2.03)\n"
-      "6.6 straight from solar, 1.1 from the battery, 0.4 bought costing £0.11" in text, True)
+      "Used 8.1 kWh, 95% from solar and battery, 7.7 kWh worth £2.03\n"
+      "6.6 straight from solar, 1.1 from the battery, 0.4 imported for £0.11" in text, True)
 # £0.216 from solar and £0.168 from the battery round to £0.22 and £0.17, so the
 # export prints as their sum, £0.39, not the £0.38 the raw total rounds to.
-check("export section", "3.2 kWh exported, earning £0.39: 1.8 from solar, 1.4 from the battery" in text, True)
+check("export section", "3.2 kWh exported for £0.39: 1.8 from solar, 1.4 from the battery" in text, True)
 check("arbitrage is included, not added", "£0.32 gained from energy arbitrage, included in the total above" in text, True)
 check("sections in order", [text.index(e) for e in "💷☀🔋🏠⚡📈"] == sorted(text.index(e) for e in "💷☀🔋🏠⚡📈"), True)
 invariants("normal day", text)
@@ -329,7 +341,7 @@ adds_up("drained", drained)
 no_battery = plain(render(summarise([Bucket(pv=4.0, imported=1.0, exported=1.5, import_rate=RATE, export_rate=EXPORT)]),
                           "daily", "x", has_battery=False))
 check("no battery section without battery entities", "🔋" in no_battery, False)
-check("coverage says solar alone", "from solar (" in no_battery, True)
+check("coverage says solar alone", "% from solar, " in no_battery, True)
 check("no battery in the title or the earnings", ("SOLAR REPORT" in no_battery, "saved by solar\n" in no_battery), (True, True))
 adds_up("no battery", no_battery)
 invariants("no battery", no_battery)
@@ -361,6 +373,22 @@ for period in ("daily", "weekly", "monthly"):
     invariants(period, msg)
     adds_up(period, msg)
 
+print("\n== negative and zero prices")
+# Octopus Agile goes negative: importing is paid for. The term keeps its meaning
+# and flips its sign, rather than printing "--£0.10".
+paid = plain(render(summarise([Bucket(imported=2.0, charged=2.0, import_rate=-0.05)]), "daily", "x"))
+check("paid to import reads +£ in the earnings", "\n+£0.10 imported\n= £0.10" in paid, True)
+check("and -£ on the battery line", "2.0 imported for -£0.10" in paid, True)
+invariants("paid to import", paid)
+adds_up("paid to import", paid)
+dumped = plain(render(summarise([Bucket(pv=2.0, exported=2.0, import_rate=0.25, export_rate=-0.02)]), "daily", "x"))
+check("charged to export reads -£", ("\n-£0.04 exported\n" in dumped, "= -£0.04" in dumped), (True, True))
+invariants("charged to export", dumped)
+adds_up("charged to export", dumped)
+free = plain(render(summarise([Bucket(pv=1.0, imported=1.0, import_rate=0.0)]), "daily", "x"))
+check("a free import still counts in the kWh", "1.0 imported for £0.00" in free, True)
+adds_up("free import", free)
+
 print("\n== random days: every message adds up, in kWh and in money")
 # Quietly: a failure is reported with the seed that produced it.
 rng = random.Random(11)
@@ -371,8 +399,8 @@ for trial in range(300):
                       exported=round(rng.uniform(0, 0.4), 3) * (rng.random() < 0.3),
                       charged=round(rng.uniform(0, 0.4), 3) * (rng.random() < 0.4),
                       discharged=round(rng.uniform(0, 0.4), 3) * (rng.random() < 0.4),
-                      import_rate=rng.choice([0.1529, 0.2547, 0.3566, None]),
-                      export_rate=rng.choice([0.12, 0.2143, None]))
+                      import_rate=rng.choice([0.1529, 0.2547, 0.3566, 0.0, -0.05, None]),
+                      export_rate=rng.choice([0.12, 0.2143, -0.01, None]))
                for _ in range(rng.randint(1, 288))]
     msg = render(summarise(buckets, 0.2547, 0.12), rng.choice(["daily", "weekly"]), "x")
     before = failures

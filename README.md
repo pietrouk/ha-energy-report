@@ -101,8 +101,10 @@ by 0.1 kWh.
 
 ### HACS
 
-Add this repository as a custom repository (category: Integration), then install
-**Energy Report** and restart Home Assistant.
+[![Open in HACS](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=pietrouk&repository=ha-energy-report&category=integration)
+
+Or add this repository as a custom repository (category: Integration). Then
+download **Energy Report** and restart Home Assistant.
 
 ### Manually
 
@@ -165,15 +167,23 @@ for a month, then never again.
 
 ### Delivery
 
-Give it a notify service, such as `notify.mobile_app_phone` or
-`telegram_bot.send_message`, or leave it empty and call `energy_report.generate`
-yourself.
+| Method | What you pick | Format |
+|---|---|---|
+| **Telegram** | the chat entities your Telegram bot created, and/or chat IDs (group chats start with a minus sign) | HTML, bold headings |
+| **Notify entity** | one or more `notify.*` entities, such as your phone's | plain text |
+| **Notify service** | a service by name, such as `notify.mobile_app_my_phone` | plain text |
+| **Don't send** | nothing; call `energy_report.generate` and deliver the message yourself | |
 
-The daily report can wait until sunset when sunset falls after your chosen time.
-The comparison uses the sunset **time** rather than the sun entity's state:
-`sun.sun` changes to `below_horizon` several minutes after the astronomical
-sunset. That leaves a gap where neither the clock condition nor the sun
-condition is true, and the report is silently skipped.
+### Schedule
+
+Daily, weekly (Mondays) and monthly (the 1st), each on or off with its own
+time. The daily report can wait for sunset when sunset falls after your chosen
+time.
+
+The comparison uses the sunset **time**, worked out from your home location,
+rather than the sun entity's state. `sun.sun` changes to `below_horizon` several
+minutes after the astronomical sunset. That leaves a gap where neither the clock
+condition nor the sun condition is true, and the report is silently skipped.
 
 The daily window ends on the last five-minute boundary, and the report waits a
 minute before reading. The recorder takes a few seconds to write each
@@ -183,9 +193,30 @@ report belonged to neither that report nor the next.
 ### Optional: a planner's savings figure
 
 If you run something that keeps its own arbitrage savings as a running total,
-point the last three fields at it. The gate is there because a planner that is
-only watching, or is stopped, hasn't saved you anything. In any state other than
-the one you set, the report shows zero and says why.
+point the last three fields of the Prices step at it. The gate is there because
+a planner that is only watching, or is stopped, hasn't saved you anything. In
+any state other than the one you set, the report shows zero and says why.
+
+## Changing settings later
+
+**Settings → Devices & services → Energy Report → Configure** opens a menu:
+energy entities, prices and planner savings, delivery, and schedule. Each one
+saves on its own. The device page links there too (**Visit**).
+
+Change an energy entity when you replace a device or picked the wrong one, not
+routinely. Reports reach back through history, so a weekly report covering a
+change reads the new counter for the whole week.
+
+The device page has the everyday controls:
+
+| Entity | What it does |
+|---|---|
+| Daily / Weekly / Monthly report | switches that turn each report on or off |
+| Daily / Weekly / Monthly report time | when each one goes out |
+| Daily report waits for sunset | whether the daily one waits for a later sunset |
+| Send daily / weekly / monthly report now | buttons that build and send one straight away |
+| Next daily / weekly / monthly report | when each one next goes out, sunset included; unknown while that report is off |
+| Import / Export rate | the price mirrors the reports are priced from |
 
 ## Services
 
@@ -240,13 +271,16 @@ check that every counter balances across 5,000 random buckets, and parse every
 kWh out of rendered messages to confirm each line adds up.
 
 ```bash
-pip install homeassistant voluptuous-serialize
+pip install pytest-homeassistant-custom-component voluptuous-serialize
 python3 tests/test_config_flow.py
+python3 -m pytest
 ```
 
-This one does need Home Assistant: it builds every setup and options form with
-Home Assistant's own selector code. A selector setting that Home Assistant
-rejects only fails when the form is built, and nothing else checks that.
+These need Home Assistant. The first builds every setup and Configure form with
+Home Assistant's own selector code. A selector setting Home Assistant rejects
+only fails when the form is built, which the user sees as "Unknown error
+occurred". The second runs setup, the Configure menu, the device-page entities
+and each delivery method against a real Home Assistant instance.
 
 ## Licence
 

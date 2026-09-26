@@ -30,12 +30,15 @@ jobs:
           python-version: "3.12"
       - run: python3 tests/test_report.py
 
-  config-flow:
+  home-assistant:
+    # Builds every form and runs setup, Configure and the device-page entities
+    # against a real Home Assistant, the newest release the test harness has.
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.13"
-      - run: pip install homeassistant voluptuous-serialize
+          python-version: "3.14"
+      - run: pip install pytest-homeassistant-custom-component voluptuous-serialize
       - run: python3 tests/test_config_flow.py
+      - run: python3 -m pytest

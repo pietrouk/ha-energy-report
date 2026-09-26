@@ -1,4 +1,4 @@
-"""The entities this integration creates: rate mirrors.
+"""Sensors: rate mirrors, and when each report next goes out.
 
 A rate mirror copies whatever entity holds the current price into a real sensor
 the recorder keeps statistics for. The price source is often not in the sensor
@@ -13,20 +13,27 @@ from __future__ import annotations
 import logging
 from datetime import timedelta
 
-from homeassistant.components.sensor import SensorEntity, SensorStateClass
+from datetime import datetime
+
+from homeassistant.components.sensor import SensorDeviceClass, SensorEntity, SensorStateClass
 from homeassistant.config_entries import ConfigEntry
+from homeassistant.const import EntityCategory
 from homeassistant.core import Event, EventStateChangedData, HomeAssistant, callback
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.event import async_track_state_change_event, async_track_time_interval
 
+from . import options
 from .const import (
+    CONF_CURRENCY,
     CONF_EXPORT_RATE,
     CONF_IMPORT_RATE,
     CONF_RATE_SCALE,
     DEFAULT_RATE_SCALE,
     DOMAIN,
+    PERIODS,
     RATE_SCALES,
 )
+from .entity import EnergyReportEntity, ScheduleEntity
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -39,8 +46,8 @@ MIRROR_INTERVAL = timedelta(minutes=1)
 async def async_setup_entry(
     hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback
 ) -> None:
-    data = entry.data
-    entities: list[SensorEntity] = []
+    data = options(entry)
+    entities: list[SensorEntity] = [NextReport(entry, period) for period in PERIODS]
 
     divisor = RATE_SCALES[data.get(CONF_RATE_SCALE, DEFAULT_RATE_SCALE)]
     for key, name, slug in (
@@ -53,23 +60,7 @@ async def async_setup_entry(
     async_add_entities(entities)
 
 
-class _Base(SensorEntity):
-    _attr_has_entity_name = True
-    _attr_should_poll = False
-
-    def __init__(self, entry: ConfigEntry, name: str, slug: str) -> None:
-        self._entry = entry
-        self._attr_name = name
-        self._attr_unique_id = f"{entry.entry_id}_{slug}"
-        self._attr_device_info = {
-            "identifiers": {(DOMAIN, entry.entry_id)},
-            "name": entry.title,
-            "manufacturer": "Energy Report",
-            "entry_type": "service",
-        }
-
-
-class RateMirror(_Base):
+class RateMirror(EnergyReportEntity, SensorEntity):
     """Copy a price into a sensor the recorder will keep statistics for."""
 
     _attr_state_class = SensorStateClass.MEASUREMENT
@@ -89,7 +80,7 @@ class RateMirror(_Base):
 
     @property
     def native_unit_of_measurement(self) -> str | None:
-        currency = self._entry.data.get("currency") or ""
+        currency = options(self._entry).get(CONF_CURRENCY) or ""
         return f"{currency}/kWh" if currency else None
 
     async def async_added_to_hass(self) -> None:
@@ -123,3 +114,24 @@ class RateMirror(_Base):
             return
         self._value = value
         self.async_write_ha_state()
+
+
+class NextReport(ScheduleEntity, SensorEntity):
+    """When a report next goes out; unknown while that report is turned off.
+
+    The daily one shows the later of the chosen time and sunset, when it is set
+    to wait for sunset, so this is where to see which one won today.
+    """
+
+    _attr_device_class = SensorDeviceClass.TIMESTAMP
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_icon = "mdi:calendar-clock"
+
+    def __init__(self, entry: ConfigEntry, period: str) -> None:
+        super().__init__(entry, f"Next {period} report", f"next_{period}")
+        self._period = period
+
+    @property
+    def native_value(self) -> datetime | None:
+        runtime = self.hass.data.get(DOMAIN, {}).get(self._entry.entry_id, {})
+        return runtime.get("next", {}).get(self._period)

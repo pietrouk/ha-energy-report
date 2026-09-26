@@ -4,13 +4,16 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 from datetime import datetime, time, timedelta
 
 import voluptuous as vol
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant, ServiceCall, ServiceResponse, SupportsResponse
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import config_validation as cv
+from homeassistant.helpers.dispatcher import async_dispatcher_send
 from homeassistant.helpers.event import async_track_point_in_time
 from homeassistant.helpers.sun import get_astral_event_date
 from homeassistant.util import dt as dt_util
@@ -22,47 +25,47 @@ from .const import (
     CONF_CHARGE_ENERGY,
     CONF_CURRENCY,
     CONF_DAILY_AFTER_SUNSET,
-    CONF_DAILY_TIME,
     CONF_DISCHARGE_ENERGY,
-    CONF_ENABLE_DAILY,
-    CONF_ENABLE_MONTHLY,
-    CONF_ENABLE_WEEKLY,
     CONF_EXPORT_ENERGY,
     CONF_EXPORT_RATE,
     CONF_FALLBACK_EXPORT_RATE,
     CONF_FALLBACK_IMPORT_RATE,
     CONF_IMPORT_ENERGY,
     CONF_IMPORT_RATE,
-    CONF_MONTHLY_TIME,
-    CONF_NOTIFY_DATA,
+    CONF_NOTIFY_ENTITIES,
     CONF_NOTIFY_SERVICE,
     CONF_PV_ENERGY,
     CONF_PV_POWER,
     CONF_RATE_SCALE,
-    CONF_WEEKLY_TIME,
+    CONF_TELEGRAM_CHAT_IDS,
+    CONF_TELEGRAM_ENTITIES,
     COMPILE_GRACE_SECONDS,
     DEFAULT_CURRENCY,
-    DEFAULT_DAILY_TIME,
-    DEFAULT_MONTHLY_TIME,
     DEFAULT_RATE_SCALE,
-    DEFAULT_WEEKLY_TIME,
+    DELIVERY_NOTIFY_ENTITY,
+    DELIVERY_NOTIFY_SERVICE,
+    DELIVERY_TELEGRAM,
     DOMAIN,
     PERIOD_DAILY,
-    PERIOD_MONTHLY,
+    PERIOD_ENABLE,
     PERIOD_RESOLUTION,
+    PERIOD_TIME,
     PERIOD_WEEKLY,
     PERIODS,
     RATE_SCALES,
+    SCHEDULE_KEYS,
     SERVICE_GENERATE,
     SERVICE_SEND,
+    SIGNAL_SCHEDULE,
 )
+from .config_flow import delivery_method
 from .message import peak_text, render
 from .report import choose_fallback, summarise
 from .statistics import collect
 from .window import span_label, window_for
 
 _LOGGER = logging.getLogger(__name__)
-PLATFORMS = [Platform.SENSOR]
+PLATFORMS = [Platform.BUTTON, Platform.SENSOR, Platform.SWITCH, Platform.TIME]
 
 SERVICE_SCHEMA = vol.Schema(
     {
@@ -75,9 +78,11 @@ SERVICE_SCHEMA = vol.Schema(
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
-    hass.data.setdefault(DOMAIN, {})[entry.entry_id] = {"timers": {}}
+    hass.data.setdefault(DOMAIN, {})[entry.entry_id] = {
+        "timers": {}, "next": {}, "config": options(entry),
+    }
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
-    entry.async_on_unload(entry.add_update_listener(_reload))
+    entry.async_on_unload(entry.add_update_listener(_updated))
     _register_services(hass)
     _schedule_all(hass, entry)
     return True
@@ -95,11 +100,26 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     return unloaded
 
 
-async def _reload(hass: HomeAssistant, entry: ConfigEntry) -> None:
+async def _updated(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """Reschedule when only the schedule changed, reload for anything else.
+
+    The schedule switches and time pickers write options on every change; a
+    full reload for each would recreate every entity, rate mirrors included,
+    each time a switch is flicked.
+    """
+    runtime = hass.data[DOMAIN][entry.entry_id]
+    old, new = runtime["config"], options(entry)
+    runtime["config"] = new
+    changed = {key for key in old.keys() | new.keys() if old.get(key) != new.get(key)}
+    if not changed:
+        return
+    if changed <= SCHEDULE_KEYS:
+        _schedule_all(hass, entry)
+        return
     await hass.config_entries.async_reload(entry.entry_id)
 
 
-def _options(entry: ConfigEntry) -> dict:
+def options(entry: ConfigEntry) -> dict:
     """Options override data, so editing the entry does not need a reinstall."""
     return {**entry.data, **entry.options}
 
@@ -111,7 +131,7 @@ def _options(entry: ConfigEntry) -> dict:
 async def build(hass: HomeAssistant, entry: ConfigEntry, period: str,
                 start: datetime | None = None, end: datetime | None = None) -> dict:
     """Collect, price and render one report. Returns every figure, not just text."""
-    config = _options(entry)
+    config = options(entry)
     if start is None or end is None:
         start, end = window_for(period, dt_util.now())
         if period == PERIOD_DAILY:
@@ -271,7 +291,7 @@ def _register_services(hass: HomeAssistant) -> None:
         entry = await _pick(call)
         result = await build(hass, entry, call.data["period"],
                              call.data.get("start"), call.data.get("end"))
-        await _deliver(hass, entry, result["message"])
+        await deliver(hass, entry, result["message"])
         return result
 
     hass.services.async_register(
@@ -284,20 +304,62 @@ def _register_services(hass: HomeAssistant) -> None:
     )
 
 
-async def _deliver(hass: HomeAssistant, entry: ConfigEntry, message: str) -> None:
-    config = _options(entry)
-    target = config.get(CONF_NOTIFY_SERVICE)
-    if not target:
-        _LOGGER.warning(
-            "energy_report: no notify service configured, nothing sent. "
-            "Use %s.%s instead and deliver the message yourself.", DOMAIN, SERVICE_GENERATE,
-        )
+def plain(message: str) -> str:
+    """The message without its Telegram HTML, for anything that would show the tags."""
+    return re.sub(r"</?[a-z]+>", "", message)
+
+
+async def deliver(hass: HomeAssistant, entry: ConfigEntry, message: str) -> None:
+    """Send a report the configured way. Raises if no way is configured."""
+    config = options(entry)
+    method = delivery_method(config)
+
+    if method == DELIVERY_TELEGRAM:
+        base = {"message": message, "parse_mode": "html"}
+        entities = config.get(CONF_TELEGRAM_ENTITIES) or []
+        chat_ids = config.get(CONF_TELEGRAM_CHAT_IDS) or []
+        if not entities and not chat_ids:
+            raise HomeAssistantError("Energy Report: no Telegram chat is configured")
+        # Two calls rather than one: which of entity_id and chat_id the bot
+        # honours when it is given both has changed between releases.
+        if entities:
+            await hass.services.async_call(
+                "telegram_bot", "send_message", base | {"entity_id": entities}, blocking=True)
+        if chat_ids:
+            await hass.services.async_call(
+                "telegram_bot", "send_message", base | {"chat_id": chat_ids}, blocking=True)
         return
-    domain, _, service = target.partition(".")
-    if not service:
-        domain, service = "notify", target
-    data = {"message": message, **(config.get(CONF_NOTIFY_DATA) or {})}
-    await hass.services.async_call(domain, service, data, blocking=True)
+
+    if method == DELIVERY_NOTIFY_ENTITY:
+        entities = config.get(CONF_NOTIFY_ENTITIES) or []
+        if not entities:
+            raise HomeAssistantError("Energy Report: no notify entity is configured")
+        await hass.services.async_call(
+            "notify", "send_message", {"entity_id": entities, "message": plain(message)},
+            blocking=True)
+        return
+
+    if method == DELIVERY_NOTIFY_SERVICE:
+        domain, _, service = (config.get(CONF_NOTIFY_SERVICE) or "").partition(".")
+        if not service:
+            domain, service = "notify", domain
+        data = {"message": plain(message)}
+        if domain == "telegram_bot":
+            data = {"message": message, "parse_mode": "html"}
+        await hass.services.async_call(domain, service, data, blocking=True)
+        return
+
+    raise HomeAssistantError(
+        "Energy Report: no delivery is configured. Choose one under Configure, "
+        f"or use {DOMAIN}.{SERVICE_GENERATE} and send the message yourself."
+    )
+
+
+async def run(hass: HomeAssistant, entry: ConfigEntry, period: str) -> dict:
+    """Build a report and send it: what the schedule and the buttons do."""
+    result = await build(hass, entry, period)
+    await deliver(hass, entry, result["message"])
+    return result
 
 
 # --------------------------------------------------------------------------
@@ -305,13 +367,17 @@ async def _deliver(hass: HomeAssistant, entry: ConfigEntry, message: str) -> Non
 
 
 def _schedule_all(hass: HomeAssistant, entry: ConfigEntry) -> None:
-    config = _options(entry)
-    if config.get(CONF_ENABLE_DAILY, True):
-        _schedule(hass, entry, PERIOD_DAILY)
-    if config.get(CONF_ENABLE_WEEKLY, False):
-        _schedule(hass, entry, PERIOD_WEEKLY)
-    if config.get(CONF_ENABLE_MONTHLY, False):
-        _schedule(hass, entry, PERIOD_MONTHLY)
+    config = options(entry)
+    runtime = hass.data[DOMAIN][entry.entry_id]
+    for period, (key, default) in PERIOD_ENABLE.items():
+        enabled = config.get(key)
+        if default if enabled is None else enabled:
+            _schedule(hass, entry, period)
+        else:
+            if cancel := runtime["timers"].pop(period, None):
+                cancel()
+            runtime["next"].pop(period, None)
+    async_dispatcher_send(hass, SIGNAL_SCHEDULE.format(entry.entry_id))
 
 
 def _parse_time(value: str, default: str) -> time:
@@ -322,16 +388,17 @@ def _parse_time(value: str, default: str) -> time:
 def _next_run(hass: HomeAssistant, entry: ConfigEntry, period: str,
               after: datetime) -> datetime:
     """When this period should next fire, strictly after `after`."""
-    config = _options(entry)
+    config = options(entry)
+    key, default = PERIOD_TIME[period]
+    at = _parse_time(config.get(key), default)
+    candidate = dt_util.start_of_local_day(after).replace(
+        hour=at.hour, minute=at.minute, second=at.second
+    )
 
     if period == PERIOD_DAILY:
-        at = _parse_time(config.get(CONF_DAILY_TIME), DEFAULT_DAILY_TIME)
-        candidate = dt_util.start_of_local_day(after).replace(
-            hour=at.hour, minute=at.minute, second=at.second
-        )
         while candidate <= after:
             candidate += timedelta(days=1)
-        if config.get(CONF_DAILY_AFTER_SUNSET, True):
+        if config.get(CONF_DAILY_AFTER_SUNSET) is not False:
             # Whichever is later, the clock time or sunset. Compared as times,
             # never by asking the sun entity what state it is in: that state
             # lags the astronomical sunset by several minutes, which opens a
@@ -345,18 +412,10 @@ def _next_run(hass: HomeAssistant, entry: ConfigEntry, period: str,
         return candidate
 
     if period == PERIOD_WEEKLY:
-        at = _parse_time(config.get(CONF_WEEKLY_TIME), DEFAULT_WEEKLY_TIME)
-        candidate = dt_util.start_of_local_day(after).replace(
-            hour=at.hour, minute=at.minute, second=at.second
-        )
         while candidate <= after or candidate.weekday() != 0:
             candidate += timedelta(days=1)
         return candidate
 
-    at = _parse_time(config.get(CONF_MONTHLY_TIME), DEFAULT_MONTHLY_TIME)
-    candidate = dt_util.start_of_local_day(after).replace(
-        hour=at.hour, minute=at.minute, second=at.second
-    )
     while candidate <= after or candidate.day != 1:
         candidate += timedelta(days=1)
     return candidate
@@ -370,15 +429,16 @@ def _schedule(hass: HomeAssistant, entry: ConfigEntry, period: str) -> None:
         # stop every future one.
         _schedule(hass, entry, period)
         try:
-            result = await build(hass, entry, period)
-            await _deliver(hass, entry, result["message"])
+            await run(hass, entry, period)
         except Exception:  # noqa: BLE001 - a scheduled job has nowhere to raise
             _LOGGER.exception("energy_report: %s report failed", period)
 
     _LOGGER.debug("energy_report: next %s report at %s", period, when)
     # One timer per period, replaced rather than added to: _fire re-arms on every
     # run, so appending would leave a year of dead cancellers to unwind.
-    timers = hass.data[DOMAIN][entry.entry_id]["timers"]
-    if previous := timers.get(period):
+    runtime = hass.data[DOMAIN][entry.entry_id]
+    if previous := runtime["timers"].get(period):
         previous()
-    timers[period] = async_track_point_in_time(hass, _fire, when)
+    runtime["timers"][period] = async_track_point_in_time(hass, _fire, when)
+    runtime["next"][period] = when
+    async_dispatcher_send(hass, SIGNAL_SCHEDULE.format(entry.entry_id))

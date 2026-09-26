@@ -36,8 +36,21 @@ CONF_ARBITRAGE_ENERGY: Final = "arbitrage_sensor"
 CONF_ARBITRAGE_GATE: Final = "arbitrage_gate"
 CONF_ARBITRAGE_GATE_STATE: Final = "arbitrage_gate_state"
 CONF_CURRENCY: Final = "currency"
+
+# --- delivery. Telegram gets the message as HTML, so the headings are bold;
+# everything else gets plain text, because a phone notification would show the
+# tags literally.
+CONF_DELIVERY: Final = "delivery"
+DELIVERY_TELEGRAM: Final = "telegram"
+DELIVERY_NOTIFY_ENTITY: Final = "notify_entity"
+DELIVERY_NOTIFY_SERVICE: Final = "notify_service"
+DELIVERY_NONE: Final = "none"
+DELIVERY_METHODS: Final = [DELIVERY_TELEGRAM, DELIVERY_NOTIFY_ENTITY,
+                           DELIVERY_NOTIFY_SERVICE, DELIVERY_NONE]
+CONF_TELEGRAM_ENTITIES: Final = "telegram_entities"
+CONF_TELEGRAM_CHAT_IDS: Final = "telegram_chat_ids"
+CONF_NOTIFY_ENTITIES: Final = "notify_entities"
 CONF_NOTIFY_SERVICE: Final = "notify_service"
-CONF_NOTIFY_DATA: Final = "notify_data"
 
 # --- schedules
 CONF_DAILY_TIME: Final = "daily_time"
@@ -47,6 +60,13 @@ CONF_MONTHLY_TIME: Final = "monthly_time"
 CONF_ENABLE_DAILY: Final = "enable_daily"
 CONF_ENABLE_WEEKLY: Final = "enable_weekly"
 CONF_ENABLE_MONTHLY: Final = "enable_monthly"
+
+# Changing only these reschedules the reports; anything else reloads the entry.
+SCHEDULE_KEYS: Final = frozenset({
+    CONF_ENABLE_DAILY, CONF_DAILY_TIME, CONF_DAILY_AFTER_SUNSET,
+    CONF_ENABLE_WEEKLY, CONF_WEEKLY_TIME,
+    CONF_ENABLE_MONTHLY, CONF_MONTHLY_TIME,
+})
 
 DEFAULT_CURRENCY: Final = "£"
 DEFAULT_DAILY_TIME: Final = "19:00:00"
@@ -63,6 +83,22 @@ PERIOD_DAILY: Final = "daily"
 PERIOD_WEEKLY: Final = "weekly"
 PERIOD_MONTHLY: Final = "monthly"
 PERIODS: Final = [PERIOD_DAILY, PERIOD_WEEKLY, PERIOD_MONTHLY]
+
+# Per period: the option that turns it on, its default, and the option holding
+# its time. The switches, time pickers and scheduler all read from here.
+PERIOD_ENABLE: Final = {
+    PERIOD_DAILY: (CONF_ENABLE_DAILY, True),
+    PERIOD_WEEKLY: (CONF_ENABLE_WEEKLY, False),
+    PERIOD_MONTHLY: (CONF_ENABLE_MONTHLY, False),
+}
+PERIOD_TIME: Final = {
+    PERIOD_DAILY: (CONF_DAILY_TIME, DEFAULT_DAILY_TIME),
+    PERIOD_WEEKLY: (CONF_WEEKLY_TIME, DEFAULT_WEEKLY_TIME),
+    PERIOD_MONTHLY: (CONF_MONTHLY_TIME, DEFAULT_MONTHLY_TIME),
+}
+
+# Sent whenever the next run times change, so the entities showing them update.
+SIGNAL_SCHEDULE: Final = "energy_report_schedule_{}"
 
 SERVICE_GENERATE: Final = "generate"
 SERVICE_SEND: Final = "send"

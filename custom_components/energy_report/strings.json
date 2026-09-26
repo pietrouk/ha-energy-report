@@ -15,46 +15,137 @@
       },
       "rates": {
         "title": "Prices",
-        "description": "Point these at whatever holds your current price - a tariff sensor, or an entity from a planner. It does not have to be in the sensor domain; a mirror sensor is created so the price is recorded and every kilowatt-hour can be valued at the rate in force when it moved. Periods from before the mirror existed use the entity's average rate if it has one, otherwise the fallback below - never the price showing at the moment the report runs, which in the evening is usually the peak.",
+        "description": "Point the price entities at whatever holds your current price: a tariff sensor, or an entity from a planner. It does not have to be in the sensor domain; a mirror sensor is created so the price is recorded and every kilowatt-hour can be valued at the rate in force when it moved. Periods from before the mirror existed use the entity's average rate if it has one, otherwise the fallback below - never the price showing at the moment the report runs, which in the evening is usually the peak.\n\nThe planner savings fields are optional: a running total of savings such as Predbat's, shown at the end of the report but not added to the total.",
         "data": {
           "import_rate": "Import price entity",
           "export_rate": "Export price entity",
           "rate_scale": "Price units",
           "fallback_import_rate": "Fallback import price",
           "fallback_export_rate": "Fallback export price",
-          "currency": "Currency symbol"
+          "currency": "Currency symbol",
+          "arbitrage_sensor": "Planner savings counter (optional, shown for reference)",
+          "arbitrage_gate": "Only count savings when this entity...",
+          "arbitrage_gate_state": "...is in this state"
         }
       },
       "delivery": {
-        "title": "Delivery and schedule",
-        "description": "Which notify service to send through, for example notify.mobile_app_phone or telegram_bot.send_message. Leave it empty to use the generate service and deliver the message yourself. The daily report can wait for sunset when that falls after the chosen time.",
+        "title": "Delivery",
+        "description": "How the report is sent. Telegram gets the formatted version with bold headings; other methods get plain text.",
         "data": {
-          "notify_service": "Notify service",
+          "delivery": "Send reports by"
+        }
+      },
+      "delivery_details": {
+        "title": "Delivery details",
+        "description": "Telegram: pick the chat entities your Telegram bot created, or type chat IDs separated by commas (group chats start with a minus sign), or both.\n\nNotify entity: pick one or more, for example your phone's.\n\nNotify service: the service name, for example notify.mobile_app_my_phone.",
+        "data": {
+          "telegram_entities": "Telegram chats",
+          "telegram_chat_ids": "Telegram chat IDs",
+          "notify_entities": "Notify entities",
+          "notify_service": "Notify service"
+        }
+      },
+      "schedule": {
+        "title": "Schedule",
+        "description": "Which reports to send and when. Weekly reports go out on Mondays and monthly ones on the 1st. The daily report can wait for sunset when that falls after the chosen time. These can also be changed from the device page.",
+        "data": {
           "enable_daily": "Send a daily report",
           "daily_time": "Daily time",
           "daily_after_sunset": "Wait for sunset if later",
           "enable_weekly": "Send a weekly report (Mondays)",
           "weekly_time": "Weekly time",
           "enable_monthly": "Send a monthly report (1st)",
-          "monthly_time": "Monthly time",
-          "arbitrage_sensor": "Planner savings counter (optional, shown as included)",
-          "arbitrage_gate": "Only count savings when this entity...",
-          "arbitrage_gate_state": "...is in this state"
+          "monthly_time": "Monthly time"
         }
       }
     },
     "error": {
       "not_found": "That entity does not exist.",
       "not_a_total": "That sensor has no long-term statistics. It needs a state class of total or total_increasing - pick the kWh counter, not the W power sensor.",
-      "not_a_measurement": "That sensor has no max statistic. Pick a solar power sensor in watts with a state class of measurement."
+      "not_a_measurement": "That sensor has no max statistic. Pick a solar power sensor in watts with a state class of measurement.",
+      "bad_chat_id": "Chat IDs must be whole numbers separated by commas, for example -1001234567890, 12345678.",
+      "no_chat": "Pick at least one Telegram chat or type a chat ID.",
+      "no_telegram": "The Telegram bot integration is not set up, so there is nothing to send through.",
+      "unknown_service": "There is no such service. Check the name under Developer tools > Actions."
     }
   },
   "options": {
     "step": {
       "init": {
         "title": "Energy Report settings",
-        "description": "Prices, delivery and schedule. The energy entities cannot be changed here: reports reach back through history, so swapping a counter would price old periods from one device and new ones from another."
+        "menu_options": {
+          "energy": "Energy entities",
+          "rates": "Prices and planner savings",
+          "delivery": "Delivery",
+          "schedule": "Schedule"
+        }
+      },
+      "energy": {
+        "title": "Energy entities",
+        "description": "The lifetime energy counters the report reads. Reports reach back through history, so a report covering a period from before a change reads the new counter for all of it. Change these when you replace a device or picked the wrong entity, not routinely.",
+        "data": {
+          "pv_energy": "Solar generated (kWh)",
+          "import_energy": "Grid imported (kWh)",
+          "export_energy": "Grid exported (kWh)",
+          "charge_energy": "Battery charged (kWh)",
+          "discharge_energy": "Battery discharged (kWh)",
+          "pv_power": "Solar power (W, optional, for the peak)"
+        }
+      },
+      "rates": {
+        "title": "Prices and planner savings",
+        "description": "Point the price entities at whatever holds your current price: a tariff sensor, or an entity from a planner. It does not have to be in the sensor domain; a mirror sensor is created so the price is recorded and every kilowatt-hour can be valued at the rate in force when it moved. Periods from before the mirror existed use the entity's average rate if it has one, otherwise the fallback below - never the price showing at the moment the report runs, which in the evening is usually the peak.\n\nThe planner savings fields are optional: a running total of savings such as Predbat's, shown at the end of the report but not added to the total.",
+        "data": {
+          "import_rate": "Import price entity",
+          "export_rate": "Export price entity",
+          "rate_scale": "Price units",
+          "fallback_import_rate": "Fallback import price",
+          "fallback_export_rate": "Fallback export price",
+          "currency": "Currency symbol",
+          "arbitrage_sensor": "Planner savings counter (optional, shown for reference)",
+          "arbitrage_gate": "Only count savings when this entity...",
+          "arbitrage_gate_state": "...is in this state"
+        }
+      },
+      "delivery": {
+        "title": "Delivery",
+        "description": "How the report is sent. Telegram gets the formatted version with bold headings; other methods get plain text.",
+        "data": {
+          "delivery": "Send reports by"
+        }
+      },
+      "delivery_details": {
+        "title": "Delivery details",
+        "description": "Telegram: pick the chat entities your Telegram bot created, or type chat IDs separated by commas (group chats start with a minus sign), or both.\n\nNotify entity: pick one or more, for example your phone's.\n\nNotify service: the service name, for example notify.mobile_app_my_phone.",
+        "data": {
+          "telegram_entities": "Telegram chats",
+          "telegram_chat_ids": "Telegram chat IDs",
+          "notify_entities": "Notify entities",
+          "notify_service": "Notify service"
+        }
+      },
+      "schedule": {
+        "title": "Schedule",
+        "description": "Which reports to send and when. Weekly reports go out on Mondays and monthly ones on the 1st. The daily report can wait for sunset when that falls after the chosen time. These can also be changed from the device page.",
+        "data": {
+          "enable_daily": "Send a daily report",
+          "daily_time": "Daily time",
+          "daily_after_sunset": "Wait for sunset if later",
+          "enable_weekly": "Send a weekly report (Mondays)",
+          "weekly_time": "Weekly time",
+          "enable_monthly": "Send a monthly report (1st)",
+          "monthly_time": "Monthly time"
+        }
       }
+    },
+    "error": {
+      "not_found": "That entity does not exist.",
+      "not_a_total": "That sensor has no long-term statistics. It needs a state class of total or total_increasing - pick the kWh counter, not the W power sensor.",
+      "not_a_measurement": "That sensor has no max statistic. Pick a solar power sensor in watts with a state class of measurement.",
+      "bad_chat_id": "Chat IDs must be whole numbers separated by commas, for example -1001234567890, 12345678.",
+      "no_chat": "Pick at least one Telegram chat or type a chat ID.",
+      "no_telegram": "The Telegram bot integration is not set up, so there is nothing to send through.",
+      "unknown_service": "There is no such service. Check the name under Developer tools > Actions."
     }
   },
   "selector": {
@@ -62,6 +153,14 @@
       "options": {
         "per_kwh": "Whole units per kWh (0.2635)",
         "per_kwh_minor": "Hundredths per kWh (26.35p)"
+      }
+    },
+    "delivery": {
+      "options": {
+        "telegram": "Telegram",
+        "notify_entity": "Notify entity (phone app and others)",
+        "notify_service": "Notify service (by name)",
+        "none": "Don't send - I'll use the energy_report.generate action"
       }
     }
   }

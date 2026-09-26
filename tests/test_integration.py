@@ -163,7 +163,7 @@ async def test_send_button_telegram(hass: HomeAssistant, world) -> None:
     calls = world["telegram"]
     assert len(calls) == 2
     assert all(c.data["parse_mode"] == "html" for c in calls)
-    assert "<b>SOLAR SUMMARY - Last week</b>" in calls[0].data["message"]
+    assert "<b>SOLAR & BATTERY REPORT</b>\nLast week (" in calls[0].data["message"]
     assert {tuple(c.data.get("entity_id", [])) for c in calls} >= {("notify.bot_chat",)}
     assert [c.data["chat_id"] for c in calls if "chat_id" in c.data] == [[CHAT]]
 
@@ -175,7 +175,7 @@ async def test_send_button_notify_entity_is_plain_text(hass: HomeAssistant, worl
     (call,) = world["notify"]
     assert call.data["entity_id"] == ["notify.phone"]
     assert "<b>" not in call.data["message"]
-    assert call.data["message"].startswith("SOLAR SUMMARY - Last month")
+    assert call.data["message"].startswith("SOLAR & BATTERY REPORT\nLast month (")
 
 
 async def test_send_button_without_delivery_says_why(hass: HomeAssistant, world) -> None:

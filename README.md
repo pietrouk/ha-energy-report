@@ -5,34 +5,35 @@ actually went, and what it was worth, delivered through any Home Assistant
 notify service.
 
 ```
-SOLAR SUMMARY - Last 24 hours
-Wed 23 Sep 19:00 - Thu 24 Sep 19:00
+SOLAR & BATTERY REPORT
+Last 24 hours (Fri 25 Sep 15:10 - Sat 26 Sep 15:10)
 
 💷 Total earnings
-£2.14 home used + £1.06 exported - £0.03 grid charging = £3.17
+£1.86 house load saved by solar & battery
++£0.55 exported
+-£0.14 imported
+= £2.27
 
 ☀️ Solar
-Generated 9.4 kWh, peak 3.5 kW at 11:40
-3.3 to the house, 4.6 into the battery, 1.5 exported
+Generated 13.5 kWh, with a power peak of 3.0 kW at 11:45
+4.0 to the house, 7.7 into the battery, 1.8 exported for £0.21
 
 🔋 Battery
-Charged 4.7 kWh: 4.6 from solar, 0.1 from the grid costing £0.03
-Supplied 8.4 kWh: 4.0 to the house, 4.4 exported
-Net -3.7 kWh, ran on energy stored earlier
+Charged 8.5 kWh: 7.7 from solar, 0.8 imported for £0.14
+Supplied 6.2 kWh: 3.3 to the house, 2.9 exported for £0.34
+Net +2.3 kWh, stored for later
 
 🏠 House
-Used 7.4 kWh, 99% from solar and battery (7.3 kWh, worth £2.14)
-3.3 straight from solar, 4.0 from the battery, 0.1 bought costing £0.02
+Used 7.7 kWh, 95% from solar and battery (7.3 kWh, worth £1.86)
+4.0 straight from solar, 3.3 from the battery, 0.4 bought costing £0.07
 
 ⚡ Export
-5.9 kWh exported, earning £1.06: 1.5 from solar, 4.4 from the battery
-
-📈 Arbitrage
-£0.24 gained from energy arbitrage, included in the total above
+4.7 kWh exported, earning £0.55: 1.8 from solar, 2.9 from the battery
 ```
 
-That is a real day: overnight on the battery, solar refilling it, then a planner
-selling most of it back in an evening saving session.
+That is a real day: solar filling the battery, a cheap overnight top-up from the
+grid, and the battery selling some back in the evening. Headings are bold in
+Telegram; other messaging methods get plain text.
 
 It works with any inverter that exposes lifetime kWh counters. There are no
 helper entities or utility meters to create and keep in step: everything is read
@@ -45,9 +46,16 @@ you actually paid the grid, net of export income:
 
 | Term | What it is |
 |---|---|
-| **home used** | everything the house got from solar *and* from the battery, each kWh at the import rate in force when it was used |
-| **exported** | everything sold to the grid, solar or battery, at the export rate in force when it went |
-| **grid charging** | what was paid to charge the battery from the grid |
+| **house load saved by solar & battery** | everything the house got from solar *and* from the battery, each kWh at the import rate in force when it was used |
+| **exported** | everything sold to the grid, solar or battery, at the export rate in force when it went. The solar and battery lines show their share |
+| **imported** | what was paid to charge the battery from the grid |
+
+The house's own grid purchases ("bought costing" on the House line) are shown
+but are not a term: buying from the grid saves nothing.
+
+Every £ adds up the same way the kWh do. Each part is rounded to the penny once
+and every total is the sum of the rounded parts, so the solar and battery
+"exported for" amounts always make the export figure exactly.
 
 **Battery energy is valued once, when it is used or sold, never when it goes
 in.** Valuing it on the way in as well would count the same kWh twice. So a day
@@ -56,7 +64,7 @@ up in the report for the day the energy comes back out. The Net line on the
 battery says which way it went.
 
 **A trade needs no term of its own.** Charge at 15p overnight and sell at 30p
-in the evening: the sale lands in *exported*, the purchase in *grid charging*,
+in the evening: the sale lands in *exported*, the purchase in *imported*,
 and the difference is the gain. The round-trip loss is already accounted for,
 because you pay for what went in and earn on what came out. If the two halves
 fall either side of a daily report's cut-off, the weekly and monthly reports
@@ -161,13 +169,15 @@ tariff is the peak and can have a saving session on top. On the day that
 prompted this, the live price read 44p, and three-quarters of a day that really
 cost 26p was valued at it.
 
-A report that used a stand-in price says so:
+A report that used a stand-in price says so, and for how long:
 
-> *Partly valued at an estimated rate - recorded rates do not cover this whole
-> period yet.*
+> *7 h 45 min of this period had no recorded rate, so that part was priced at
+> an estimated rate.*
 
-Expect that on weekly reports for a week after installing and on monthly reports
-for a month, then never again.
+It appears only when some of the period is from before the rate sensors started
+recording: daily reports for the first day after installing, weekly ones for
+the first week, monthly ones for the first month. It also appears if a rate
+entity was unavailable for a while. Otherwise it doesn't appear at all.
 
 ### Messaging
 

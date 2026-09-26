@@ -8,11 +8,11 @@ WHAT "TOTAL EARNINGS" MEANS
 What the house's energy would have cost at the rates of the time, minus what was
 actually paid to the grid, net of export income:
 
-    home used      everything the house got from solar and from the battery,
+    house load     everything the house got from solar and from the battery,
                    each kWh at the import rate in force when it was used
     exported       everything sold to the grid, solar or battery, at the export
                    rate in force when it went
-    grid charging  what was paid to charge the battery from the grid
+    imported       what was paid to charge the battery from the grid
 
 Battery energy is valued once, when it is used or sold - never when it goes in.
 Valuing it on the way in as well would count the same kWh twice. A day that
@@ -20,7 +20,7 @@ fills the battery therefore earns less than one that empties it; the value
 arrives in whichever report covers the day the energy comes back out.
 
 A trade - charging cheap, selling or using dear - needs no term of its own: the
-sale lands in exported (or home used), the purchase in grid charging, and the
+sale lands in exported (or house load), the purchase in imported, and the
 difference is the gain, with the round-trip loss already paid for.
 
 WHY BUCKET BY BUCKET
@@ -88,6 +88,9 @@ class Totals:
 
     home_value: float = 0.0
     export_value: float = 0.0
+    # export_value split by where the energy came from.
+    solar_export_value: float = 0.0
+    battery_export_value: float = 0.0
     house_cost: float = 0.0
     battery_cost: float = 0.0
 
@@ -113,7 +116,7 @@ class Totals:
 
     @property
     def total_earnings(self) -> float:
-        """Home used + exported - grid charging.
+        """House load saved + exported - imported.
 
         A planner's savings figure is deliberately not added. It is measured
         against the same solar and load with the battery doing plain
@@ -215,6 +218,8 @@ def summarise(
 
         t.home_value += (f["s2h"] + f["b2h"]) * ir
         t.export_value += (f["s2g"] + f["b2g"]) * er
+        t.solar_export_value += f["s2g"] * er
+        t.battery_export_value += f["b2g"] * er
         t.house_cost += f["g2h"] * ir
         t.battery_cost += f["g2b"] * ir
 

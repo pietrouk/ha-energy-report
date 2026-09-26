@@ -3,7 +3,9 @@
 
 usage: python3 tests/test_report.py
 """
+import contextlib
 import importlib
+import io
 import random
 import re
 import sys
@@ -42,18 +44,46 @@ def plain(message):
 
 
 def invariants(label, message):
-    """Every £ in the body is a term in the earnings line, and every term is
-    visible below it. Costs ("costing") and a planner's figure ("included in the
-    total") are exempt from the first rule; the grand total from the second."""
+    """The earnings block adds up, and every £ in the body traces to it:
+    "worth" is the house-load term, "imported for" the imported term, and the
+    solar and battery "exported for" amounts sum to the export term. "Bought
+    costing" is informational and a planner's figure is "included in the
+    total"; neither is a term."""
     text = plain(message)
-    earnings = text.split("\n\n")[1]
-    body = "\n".join(l for l in text.split("💷")[1].split("\n\n", 1)[1].splitlines()
-                     if "costing" not in l and "included in the total" not in l)
-    check(f"{label}: no money in the body that is not a term above",
-          [a for a in re.findall(r"£\d+\.\d\d", body) if a not in earnings], [])
-    terms = earnings.split(" = ")[0]
-    check(f"{label}: every term is visible below",
-          [a for a in re.findall(r"£\d+\.\d\d", terms) if a not in text.split("☀️")[1]], [])
+    money = r"(-?)£(\d+\.\d\d)"
+
+    def amount(pattern, default=None):
+        m = re.search(pattern, text)
+        if not m:
+            return default
+        sign, value = m.groups()[-2:]
+        return round((-1 if sign else 1) * float(value), 2)
+
+    home = amount(money + " house load saved by")
+    exported = amount(r"\+" + money + " exported")
+    imported = amount(r"\n-" + money + " imported", 0.0)
+    total = amount(r"= " + money)
+    check(f"{label}: earnings add up", round(home + exported - imported, 2), total)
+
+    check(f"{label}: 'worth' is the house-load term", amount(r"worth " + money), home)
+    check(f"{label}: 'earning' is the export term", amount(r"earning " + money), exported)
+    solar_line = text.split("☀️ Solar")[1].split("\n\n")[0]
+    battery_line = text.split("🔋 Battery")[1].split("\n\n")[0] if "🔋" in text else ""
+    s_m = re.search(r"exported for " + money, solar_line)
+    b_m = re.search(r"exported for " + money, battery_line)
+    solar_sold = float(s_m.group(2)) if s_m else 0.0
+    battery_sold = float(b_m.group(2)) if b_m else 0.0
+    check(f"{label}: solar and battery export amounts make the export term",
+          round(solar_sold + battery_sold, 2), exported)
+    i_m = re.search(r"imported for " + money, battery_line)
+    check(f"{label}: battery 'imported for' is the imported term",
+          float(i_m.group(2)) if i_m else 0.0, imported)
+    body = "\n".join(l for l in text.split("☀️")[1].splitlines()
+                     if "costing" not in l and "included in the total" not in l
+                     and not l.startswith("<i>"))
+    allowed = {f"{v:.2f}" for v in (home, exported, imported, solar_sold, battery_sold)}
+    check(f"{label}: no other money in the body",
+          [a for a in re.findall(r"£(\d+\.\d\d)", body) if a not in allowed], [])
 
 
 def adds_up(label, message):
@@ -74,7 +104,7 @@ def adds_up(label, message):
 
     c_tot = c_grid = d_tot = b2h = b2g = 0.0
     if "🔋" in t:
-        charged = grab(r"Charged " + num + " kWh: " + num + " from solar, " + num + " from the grid")
+        charged = grab(r"Charged " + num + " kWh: " + num + " from solar, " + num + " imported")
         if charged:
             c_tot, c_sol, c_grid = charged
             check(f"{label}: charged parts add up", round(c_sol + c_grid, 1), c_tot)
@@ -249,18 +279,27 @@ check("January reports the previous December",
 print("\n== message")
 text = plain(render(t, "daily", "Thu 17 Sep 19:00 - Fri 18 Sep 19:00", arbitrage=0.32,
                     peak=peak_text("daily", 3812.0, datetime(2026, 9, 18, 12, 40))))
-check("header and span", text.splitlines()[:2], ["SOLAR SUMMARY - Last 24 hours", "Thu 17 Sep 19:00 - Fri 18 Sep 19:00"])
-check("earnings line", "£2.03 home used + £0.38 exported - £0.16 grid charging = £2.25" in text, True)
+check("header and span", text.splitlines()[:2],
+      ["SOLAR & BATTERY REPORT", "Last 24 hours (Thu 17 Sep 19:00 - Fri 18 Sep 19:00)"])
+check("earnings block",
+      "💷 Total earnings\n£2.03 house load saved by solar & battery\n+£0.39 exported\n-£0.16 imported\n= £2.26"
+      in text, True)
 check("solar section with the peak",
-      "Generated 12.4 kWh, peak 3.8 kW at 12:40\n6.6 to the house, 4.0 into the battery, 1.8 exported" in text, True)
+      "Generated 12.4 kWh, with a power peak of 3.8 kW at 12:40\n"
+      "6.6 to the house, 4.0 into the battery, 1.8 exported for £0.22" in text, True)
 check("battery section",
-      "Charged 4.6 kWh: 4.0 from solar, 0.6 from the grid costing £0.16\n"
-      "Supplied 2.5 kWh: 1.1 to the house, 1.4 exported\n"
+      "Charged 4.6 kWh: 4.0 from solar, 0.6 imported for £0.16\n"
+      "Supplied 2.5 kWh: 1.1 to the house, 1.4 exported for £0.17\n"
       "Net +2.1 kWh, stored for later" in text, True)
+check("headings are bold, emoji inside",
+      all(f"<b>{h}</b>" in render(t, "daily", "x", arbitrage=0.32) for h in
+          ("SOLAR & BATTERY REPORT", "💷 Total earnings", "☀️ Solar", "🔋 Battery", "🏠 House", "⚡ Export")), True)
 check("house section",
       "Used 8.1 kWh, 95% from solar and battery (7.7 kWh, worth £2.03)\n"
       "6.6 straight from solar, 1.1 from the battery, 0.4 bought costing £0.11" in text, True)
-check("export section", "3.2 kWh exported, earning £0.38: 1.8 from solar, 1.4 from the battery" in text, True)
+# £0.216 from solar and £0.168 from the battery round to £0.22 and £0.17, so the
+# export prints as their sum, £0.39, not the £0.38 the raw total rounds to.
+check("export section", "3.2 kWh exported, earning £0.39: 1.8 from solar, 1.4 from the battery" in text, True)
 check("arbitrage is included, not added", "£0.32 gained from energy arbitrage, included in the total above" in text, True)
 check("sections in order", [text.index(e) for e in "💷☀🔋🏠⚡📈"] == sorted(text.index(e) for e in "💷☀🔋🏠⚡📈"), True)
 invariants("normal day", text)
@@ -269,18 +308,18 @@ adds_up("normal day", text)
 check("weekly peak names the day", peak_text("weekly", 4100.0, datetime(2026, 9, 17, 12)), "4.1 kW on Thu 17 Sep")
 check("no peak without a reading", peak_text("daily", None, None), None)
 check("no peak on a zero-watt period", peak_text("daily", 0.0, datetime(2026, 9, 18, 12)), None)
-check("no peak clause when there is none", "peak" in render(t, "daily", "x"), False)
+check("no peak clause when there is none", "power peak" in render(t, "daily", "x"), False)
 
 # 24 Sep's battery: 4.64 kWh from solar and 0.13 from the grid is 4.77, which
 # rounds to 4.8 - but the parts round to 4.6 and 0.1. The total is the parts' sum.
 edge = plain(render(summarise([Bucket(pv=4.64, charged=4.77, imported=0.13, import_rate=RATE)]), "daily", "x"))
-check("a total is the sum of its rounded parts", "Charged 4.7 kWh: 4.6 from solar, 0.1 from the grid" in edge, True)
+check("a total is the sum of its rounded parts", "Charged 4.7 kWh: 4.6 from solar, 0.1 imported for £0.03" in edge, True)
 adds_up("rounding edge", edge)
 
 quiet = plain(render(summarise([Bucket(pv=5.0, charged=3.0, import_rate=RATE)]), "daily", "x"))
 check("an all-solar charge says so", "Charged 3.0 kWh, all from solar" in quiet, True)
 check("an idle battery says so", "Supplied nothing" in quiet, True)
-check("no grid-charging term when there was none", "grid charging" in quiet, False)
+check("no imported term when nothing was imported", "imported" in quiet, False)
 check("stored energy is explained", "Net +3.0 kWh, stored for later" in quiet, True)
 adds_up("idle battery", quiet)
 drained = plain(render(summarise([Bucket(discharged=3.0, import_rate=RATE)]), "daily", "x"))
@@ -291,11 +330,12 @@ no_battery = plain(render(summarise([Bucket(pv=4.0, imported=1.0, exported=1.5, 
                           "daily", "x", has_battery=False))
 check("no battery section without battery entities", "🔋" in no_battery, False)
 check("coverage says solar alone", "from solar (" in no_battery, True)
+check("no battery in the title or the earnings", ("SOLAR REPORT" in no_battery, "saved by solar\n" in no_battery), (True, True))
 adds_up("no battery", no_battery)
 invariants("no battery", no_battery)
 
 trade_text = plain(render(trade, "daily", "x"))
-check("a trade shows the sale on the battery line", "Supplied 4.5 kWh: 0.0 to the house, 4.5 exported" in trade_text, True)
+check("a trade shows the sale on the battery line", "Supplied 4.5 kWh: 0.0 to the house, 4.5 exported for £" in trade_text, True)
 adds_up("trade", trade_text)
 invariants("trade", trade_text)
 
@@ -303,15 +343,48 @@ check("no arbitrage section when not configured", "📈" in render(t, "daily", "
 check("a gated planner says why", "£0.00 - the controller is watching, not controlling" in
       render(t, "daily", "x", arbitrage=0.0, arbitrage_note="the controller is watching, not controlling"), True)
 check("a loss is included too", "£0.41 lost to energy arbitrage, included" in render(t, "daily", "x", arbitrage=-0.41), True)
-check("footnote when estimated", "Valued at an estimated rate" in render(summarise([Bucket(pv=1.0)]), "daily", "x"), True)
-check("and partly when only some is", "Partly valued at an estimated rate" in render(mixed, "daily", "x"), True)
+check("footnote when estimated",
+      "No rates were recorded for this period, so all of it was priced at an estimated rate."
+      in render(summarise([Bucket(pv=1.0)]), "daily", "x"), True)
+check("and how much when only part is",
+      f"{mixed.unpriced_buckets * 5} min of this period had no recorded rate" in render(mixed, "daily", "x"), True)
+seven = summarise([Bucket(pv=0.1, import_rate=RATE)] + [Bucket(pv=0.1)] * 93)
+check("a daily gap reads in hours and minutes",
+      "7 h 45 min of this period had no recorded rate" in render(seven, "daily", "x"), True)
+week = summarise([Bucket(pv=0.1, import_rate=RATE)] + [Bucket(pv=0.1)] * 76)
+check("a weekly gap reads in days and hours",
+      "3 days 4 h of this period had no recorded rate" in render(week, "weekly", "x"), True)
+check("no footnote when every bucket has a rate", "<i>" in render(t, "daily", "x"), False)
+check("a negative total prints as -£", _message._money("£", -0.12), "-£0.12")
 for period in ("daily", "weekly", "monthly"):
     msg = render(t, period, "x", arbitrage=0.32)
     invariants(period, msg)
     adds_up(period, msg)
 
+print("\n== random days: every message adds up, in kWh and in money")
+# Quietly: a failure is reported with the seed that produced it.
+rng = random.Random(11)
+broken = []
+for trial in range(300):
+    buckets = [Bucket(pv=round(rng.uniform(0, 0.4), 3) * (rng.random() < 0.6),
+                      imported=round(rng.uniform(0, 0.3), 3) * (rng.random() < 0.3),
+                      exported=round(rng.uniform(0, 0.4), 3) * (rng.random() < 0.3),
+                      charged=round(rng.uniform(0, 0.4), 3) * (rng.random() < 0.4),
+                      discharged=round(rng.uniform(0, 0.4), 3) * (rng.random() < 0.4),
+                      import_rate=rng.choice([0.1529, 0.2547, 0.3566, None]),
+                      export_rate=rng.choice([0.12, 0.2143, None]))
+               for _ in range(rng.randint(1, 288))]
+    msg = render(summarise(buckets, 0.2547, 0.12), rng.choice(["daily", "weekly"]), "x")
+    before = failures
+    with contextlib.redirect_stdout(io.StringIO()):
+        invariants(f"trial {trial}", msg)
+        adds_up(f"trial {trial}", msg)
+    if failures > before:
+        broken.append(trial)
+check("300 random days add up", broken, [])
+
 print()
 if failures:
     print(f"{failures} check(s) failed")
     sys.exit(1)
-print("Energy Report checks passed")
+print("Solar & Battery reports checks passed")

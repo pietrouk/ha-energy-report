@@ -12,7 +12,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from . import options
 from .const import CONF_DAILY_AFTER_SUNSET, PERIOD_ENABLE
-from .entity import ScheduleEntity
+from .entity import SettingEntity
 
 
 async def async_setup_entry(
@@ -29,7 +29,7 @@ async def async_setup_entry(
     async_add_entities(switches)
 
 
-class OptionSwitch(ScheduleEntity, SwitchEntity):
+class OptionSwitch(SettingEntity, SwitchEntity):
     _attr_entity_category = EntityCategory.CONFIG
 
     def __init__(self, entry: ConfigEntry, key: str, default: bool, name: str,

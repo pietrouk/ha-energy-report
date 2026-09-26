@@ -18,6 +18,7 @@ from typing import Any
 import voluptuous as vol
 from homeassistant.config_entries import ConfigEntry, ConfigFlow, ConfigFlowResult, OptionsFlow
 from homeassistant.core import HomeAssistant, callback
+from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.selector import (
     BooleanSelector,
     EntitySelector,
@@ -188,7 +189,7 @@ def _schedule_schema(defaults: dict[str, Any]) -> vol.Schema:
     )
 
 
-def summary(config: dict[str, Any]) -> dict[str, str]:
+def summary(hass: HomeAssistant, entry_id: str, config: dict[str, Any]) -> dict[str, str]:
     """What is set now, for the Configure menu - so it can be read without
     opening every step."""
     def listed(values: Any) -> str:
@@ -237,9 +238,32 @@ def summary(config: dict[str, Any]) -> dict[str, str]:
         "delivery": delivery,
         "schedule": "; ".join(parts) or "no reports turned on",
         "energy": ", ".join(energy),
-        "prices": (f"import {config.get(CONF_IMPORT_RATE) or '(none)'}, "
-                   f"export {config.get(CONF_EXPORT_RATE) or '(none)'}"),
+        "prices": _prices_summary(hass, entry_id, config),
     }
+
+
+def _prices_summary(hass: HomeAssistant, entry_id: str, config: dict[str, Any]) -> str:
+    """Which entity each rate comes from, what records it, and the fallback."""
+    registry = er.async_get(hass)
+    minor = (config.get(CONF_RATE_SCALE) or DEFAULT_RATE_SCALE) == "per_kwh_minor"
+    currency = config.get(CONF_CURRENCY) or DEFAULT_CURRENCY
+    parts = []
+    for label, key, fallback_key in (
+        ("import", CONF_IMPORT_RATE, CONF_FALLBACK_IMPORT_RATE),
+        ("export", CONF_EXPORT_RATE, CONF_FALLBACK_EXPORT_RATE),
+    ):
+        source = config.get(key)
+        mirror = registry.async_get_entity_id(
+            "sensor", DOMAIN, f"{entry_id}_{label}_rate") or f"the {label} rate (recorded) sensor"
+        fallback = config.get(fallback_key) or 0
+        shown = f"{fallback:g}{'p' if minor and currency == '£' else ''}" if fallback else "none"
+        if source:
+            parts.append(f"{label} from {source}, recorded as {mirror} "
+                         f"(configured fallback {shown}, only for periods before recording "
+                         "started when the source has no average of its own)")
+        else:
+            parts.append(f"{label}: no rate entity, every period at the fallback {shown}")
+    return "; ".join(parts)
 
 
 def delivery_method(config: dict[str, Any]) -> str:
@@ -399,7 +423,7 @@ class EnergyReportOptionsFlow(OptionsFlow):
         return self.async_show_menu(
             step_id="init",
             menu_options=["delivery", "schedule", "energy", "rates"],
-            description_placeholders=summary(self._current),
+            description_placeholders=summary(self.hass, self.config_entry.entry_id, self._current),
         )
 
     async def async_step_energy(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:

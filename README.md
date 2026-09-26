@@ -136,15 +136,19 @@ which keeps it in step with them inside every five-minute bucket.
 
 ### Prices
 
-Point these at whatever holds your current price. It **doesn't** have to be a
-`sensor`: Predbat's `predbat.rates`, for example, is in its own domain and gets
-no statistics at all. The integration creates a mirror sensor for whatever you
-pick, which is what makes per-bucket pricing possible.
+Point these at whatever holds your live rate: Predbat's `predbat.rates` and
+`predbat.rates_export` (pence), an Octopus rate sensor (pounds), or any tariff
+sensor. It **doesn't** have to be a `sensor`: `predbat.rates` is in its own
+domain and gets no statistics at all.
+
+The integration records whatever you pick as **Import rate (recorded)** and
+**Export rate (recorded)**. Those are copies of your price entity, and what
+every report is priced from, five minutes at a time. They are not the fallback.
 
 Choose whether your source reports whole units (`0.2635`) or hundredths
 (`26.35p`).
 
-Periods from before the mirror existed need a stand-in price. It is chosen in
+Periods from before recording started need a stand-in price. It is chosen in
 this order:
 
 1. the price entity's `average` attribute, if it has one (Predbat does)
@@ -212,12 +216,14 @@ The device page has the everyday controls:
 
 | Entity | What it does |
 |---|---|
+| Messaging | Telegram, notify entity, notify service, or don't send |
+| Send to | where it goes, comma separated: Telegram chat entities and/or chat IDs, notify entities, or one service name. A bad value is refused with the reason |
 | Daily / Weekly / Monthly report | switches that turn each report on or off |
 | Daily / Weekly / Monthly report time | when each one goes out |
 | Daily report waits for sunset | whether the daily one waits for a later sunset |
 | Send daily / weekly / monthly report now | buttons that build and send one straight away |
 | Next daily / weekly / monthly report | when each one next goes out, sunset included; unknown while that report is off |
-| Import / Export rate | the price mirrors the reports are priced from; they keep their last price across a restart |
+| Import / Export rate (recorded) | the rate the reports are priced from, recorded from your price entity (its `recorded_from` attribute says which). Not the fallback. Keeps its last price across a restart |
 
 ## Services
 

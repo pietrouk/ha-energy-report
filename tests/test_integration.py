@@ -118,7 +118,8 @@ async def test_device_page_entities(hass: HomeAssistant, world) -> None:
         "button.energy_report_send_daily_report_now", "button.energy_report_send_weekly_report_now",
         "button.energy_report_send_monthly_report_now",
         "sensor.energy_report_next_daily_report", "sensor.energy_report_next_weekly_report",
-        "sensor.energy_report_next_monthly_report", "sensor.energy_report_import_rate",
+        "sensor.energy_report_next_monthly_report", "sensor.energy_report_import_rate_recorded",
+        "select.energy_report_messaging", "text.energy_report_send_to",
     ):
         assert hass.states.get(entity_id) is not None, entity_id
 
@@ -130,14 +131,14 @@ async def test_device_page_entities(hass: HomeAssistant, world) -> None:
 
     # Turning the weekly report on schedules it, without reloading the entry:
     # the rate mirror keeps its state object rather than being recreated.
-    mirror_before = hass.states.get("sensor.energy_report_import_rate").last_changed
+    mirror_before = hass.states.get("sensor.energy_report_import_rate_recorded").last_changed
     await hass.services.async_call("switch", "turn_on",
                                    {"entity_id": "switch.energy_report_weekly_report"}, blocking=True)
     await hass.async_block_till_done()
     assert entry.options["enable_weekly"] is True
     assert hass.states.get("switch.energy_report_weekly_report").state == "on"
     assert hass.states.get("sensor.energy_report_next_weekly_report").state not in ("unknown", "unavailable")
-    assert hass.states.get("sensor.energy_report_import_rate").last_changed == mirror_before
+    assert hass.states.get("sensor.energy_report_import_rate_recorded").last_changed == mirror_before
 
     await hass.services.async_call("time", "set_value",
                                    {"entity_id": "time.energy_report_weekly_report_time", "time": "09:30:00"},
@@ -206,6 +207,9 @@ async def test_configure_menu(hass: HomeAssistant, world) -> None:
     assert shown["delivery"] == f"Telegram to chat {CHAT}"
     assert shown["schedule"] == "daily at 19:00 or sunset if later"
     assert "solar sensor.pv_total" in shown["energy"] and "solar power sensor.pv_power" in shown["energy"]
+    assert shown["prices"].startswith(
+        "import from sensor.tariff, recorded as sensor.energy_report_import_rate_recorded")
+    assert "export: no rate entity, every period at the fallback 12p" in shown["prices"]
 
     # Energy entities can be changed, and an optional one cleared: stored as
     # None so the value from setup does not show through.
@@ -281,12 +285,67 @@ async def test_rate_mirror_keeps_its_price_across_a_restart(hass: HomeAssistant,
     on its next cycle - and the mirror must hold the last price, not go blank."""
     hass.states.async_set("sensor.tariff", "unknown")
     mock_restore_cache_with_extra_data(hass, [(
-        State("sensor.energy_report_import_rate", "0.2547"),
+        State("sensor.energy_report_import_rate_recorded", "0.2547"),
         {"native_value": 0.2547, "native_unit_of_measurement": "£/kWh"},
     )])
     await _setup(hass, delivery="none")
-    assert hass.states.get("sensor.energy_report_import_rate").state == "0.2547"
+    assert hass.states.get("sensor.energy_report_import_rate_recorded").state == "0.2547"
 
     hass.states.async_set("sensor.tariff", "35.66")
     await hass.async_block_till_done()
-    assert hass.states.get("sensor.energy_report_import_rate").state == "0.3566"
+    assert hass.states.get("sensor.energy_report_import_rate_recorded").state == "0.3566"
+
+
+async def test_messaging_from_the_device_page(hass: HomeAssistant, world) -> None:
+    from homeassistant.exceptions import ServiceValidationError
+
+    await _setup(hass, delivery="none")
+    assert hass.states.get("select.energy_report_messaging").state == "none"
+    assert hass.states.get("text.energy_report_send_to").state == ""
+    mirror_before = hass.states.get("sensor.energy_report_import_rate_recorded").last_changed
+
+    # A target cannot be set while messaging is off: it would not be clear what it is for.
+    with pytest.raises(ServiceValidationError, match="Choose a method"):
+        await hass.services.async_call("text", "set_value", {
+            "entity_id": "text.energy_report_send_to", "value": "notify.phone"}, blocking=True)
+
+    await hass.services.async_call("select", "select_option", {
+        "entity_id": "select.energy_report_messaging", "option": "telegram"}, blocking=True)
+    await hass.async_block_till_done()
+    assert hass.states.get("select.energy_report_messaging").state == "telegram"
+
+    with pytest.raises(ServiceValidationError, match="whole numbers"):
+        await hass.services.async_call("text", "set_value", {
+            "entity_id": "text.energy_report_send_to", "value": "family chat"}, blocking=True)
+
+    await hass.services.async_call("text", "set_value", {
+        "entity_id": "text.energy_report_send_to", "value": f"notify.bot_chat, {CHAT}"}, blocking=True)
+    await hass.async_block_till_done()
+    assert hass.states.get("text.energy_report_send_to").state == f"notify.bot_chat, {CHAT}"
+    # Applied in place: the entry was not reloaded.
+    assert hass.states.get("sensor.energy_report_import_rate_recorded").last_changed == mirror_before
+
+    await hass.services.async_call("button", "press",
+                                   {"entity_id": "button.energy_report_send_weekly_report_now"}, blocking=True)
+    assert len(world["telegram"]) == 2
+
+    await hass.services.async_call("select", "select_option", {
+        "entity_id": "select.energy_report_messaging", "option": "notify_entity"}, blocking=True)
+    await hass.async_block_till_done()
+    with pytest.raises(ServiceValidationError, match="notify entities"):
+        await hass.services.async_call("text", "set_value", {
+            "entity_id": "text.energy_report_send_to", "value": "-12345"}, blocking=True)
+    await hass.services.async_call("text", "set_value", {
+        "entity_id": "text.energy_report_send_to", "value": "notify.phone"}, blocking=True)
+    await hass.services.async_call("button", "press",
+                                   {"entity_id": "button.energy_report_send_weekly_report_now"}, blocking=True)
+    assert world["notify"][-1].data["entity_id"] == ["notify.phone"]
+
+
+async def test_rate_sensor_says_where_its_price_comes_from(hass: HomeAssistant, world) -> None:
+    await _setup(hass, delivery="none")
+    attrs = hass.states.get("sensor.energy_report_import_rate_recorded").attributes
+    assert attrs["friendly_name"] == "Energy Report Import rate (recorded)"
+    assert attrs["recorded_from"] == "sensor.tariff"
+    assert attrs["source_units"] == "hundredths per kWh"
+    assert attrs["configured_fallback_rate"] == 0.2547

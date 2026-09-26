@@ -29,9 +29,9 @@ class EnergyReportEntity(Entity):
         )
 
 
-class ScheduleEntity(EnergyReportEntity):
-    """An entity showing part of the schedule, refreshed whenever it changes -
-    from this entity, from another, or from the Configure dialog."""
+class SettingEntity(EnergyReportEntity):
+    """An entity showing a setting, refreshed whenever settings change - from
+    this entity, from another, or from the Configure dialog."""
 
     async def async_added_to_hass(self) -> None:
         await super().async_added_to_hass()
@@ -42,8 +42,11 @@ class ScheduleEntity(EnergyReportEntity):
         )
 
     def _set_option(self, key: str, value: object) -> None:
-        """Store a schedule setting. The update listener reschedules, which
-        sends the signal that refreshes this entity and the next-run sensors."""
+        self._set_options({key: value})
+
+    def _set_options(self, changes: dict[str, object]) -> None:
+        """Store settings. The update listener applies them and sends the signal
+        that refreshes this entity and the others showing them."""
         self.hass.config_entries.async_update_entry(
-            self._entry, options={**self._entry.options, key: value}
+            self._entry, options={**self._entry.options, **changes}
         )

@@ -15,13 +15,13 @@
       },
       "rates": {
         "title": "Prices",
-        "description": "Point the price entities at whatever holds your current price: a tariff sensor, or an entity from a planner. It does not have to be in the sensor domain; a mirror sensor is created so the price is recorded and every kilowatt-hour can be valued at the rate in force when it moved. Periods from before the mirror existed use the entity's average rate if it has one, otherwise the fallback below - never the price showing at the moment the report runs, which in the evening is usually the peak.\n\nThe planner savings fields are optional: a running total of savings such as Predbat's, shown at the end of the report but not added to the total.",
+        "description": "**Price entities** hold your live rate, and are what every report is priced from. Pick the entity your tariff comes from, for example Predbat's predbat.rates and predbat.rates_export (in pence: choose hundredths), or an Octopus rate sensor such as Predbat's sensor.predbat_octopus_…_import_rates (in pounds: choose whole units). It does not have to be in the sensor domain.\n\nEach one is recorded as Energy Report Import rate (recorded) / Export rate (recorded), so every five minutes is priced at the rate in force at the time. Those sensors are copies of your price entity, not the fallback.\n\n**Fallback prices** only matter for periods from before recording started - the first reports after installing. For those periods the price entity's own average is used if it has one (Predbat's does); otherwise this number; otherwise, at 0, the average of what was recorded. Never the price showing when the report runs, which in the evening is usually the peak.\n\n**Planner savings** (optional): a running total of savings such as Predbat's, shown at the end of the report but not added to the total.",
         "data": {
-          "import_rate": "Import price entity",
-          "export_rate": "Export price entity",
+          "import_rate": "Import price entity (your live rate)",
+          "export_rate": "Export price entity (your live rate)",
           "rate_scale": "Price units",
-          "fallback_import_rate": "Fallback import price",
-          "fallback_export_rate": "Fallback export price",
+          "fallback_import_rate": "Fallback import price (only before recording started)",
+          "fallback_export_rate": "Fallback export price (only before recording started)",
           "currency": "Currency symbol",
           "arbitrage_sensor": "Planner savings counter (optional, shown for reference)",
           "arbitrage_gate": "Only count savings when this entity...",
@@ -95,13 +95,13 @@
       },
       "rates": {
         "title": "Prices and planner savings",
-        "description": "Point the price entities at whatever holds your current price: a tariff sensor, or an entity from a planner. It does not have to be in the sensor domain; a mirror sensor is created so the price is recorded and every kilowatt-hour can be valued at the rate in force when it moved. Periods from before the mirror existed use the entity's average rate if it has one, otherwise the fallback below - never the price showing at the moment the report runs, which in the evening is usually the peak.\n\nThe planner savings fields are optional: a running total of savings such as Predbat's, shown at the end of the report but not added to the total.",
+        "description": "**Price entities** hold your live rate, and are what every report is priced from. Pick the entity your tariff comes from, for example Predbat's predbat.rates and predbat.rates_export (in pence: choose hundredths), or an Octopus rate sensor such as Predbat's sensor.predbat_octopus_…_import_rates (in pounds: choose whole units). It does not have to be in the sensor domain.\n\nEach one is recorded as Energy Report Import rate (recorded) / Export rate (recorded), so every five minutes is priced at the rate in force at the time. Those sensors are copies of your price entity, not the fallback.\n\n**Fallback prices** only matter for periods from before recording started - the first reports after installing. For those periods the price entity's own average is used if it has one (Predbat's does); otherwise this number; otherwise, at 0, the average of what was recorded. Never the price showing when the report runs, which in the evening is usually the peak.\n\n**Planner savings** (optional): a running total of savings such as Predbat's, shown at the end of the report but not added to the total.",
         "data": {
-          "import_rate": "Import price entity",
-          "export_rate": "Export price entity",
+          "import_rate": "Import price entity (your live rate)",
+          "export_rate": "Export price entity (your live rate)",
           "rate_scale": "Price units",
-          "fallback_import_rate": "Fallback import price",
-          "fallback_export_rate": "Fallback export price",
+          "fallback_import_rate": "Fallback import price (only before recording started)",
+          "fallback_export_rate": "Fallback export price (only before recording started)",
           "currency": "Currency symbol",
           "arbitrage_sensor": "Planner savings counter (optional, shown for reference)",
           "arbitrage_gate": "Only count savings when this entity...",
@@ -162,6 +162,18 @@
         "notify_entity": "Notify entity (phone app and others)",
         "notify_service": "Notify service (by name)",
         "none": "Don't send - I'll use the energy_report.generate action"
+      }
+    }
+  },
+  "entity": {
+    "select": {
+      "messaging": {
+        "state": {
+          "telegram": "Telegram",
+          "notify_entity": "Notify entity",
+          "notify_service": "Notify service",
+          "none": "Don't send"
+        }
       }
     }
   }

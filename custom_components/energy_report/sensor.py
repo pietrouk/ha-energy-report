@@ -29,6 +29,8 @@ from . import options
 from .const import (
     CONF_CURRENCY,
     CONF_EXPORT_RATE,
+    CONF_FALLBACK_EXPORT_RATE,
+    CONF_FALLBACK_IMPORT_RATE,
     CONF_IMPORT_RATE,
     CONF_RATE_SCALE,
     DEFAULT_RATE_SCALE,
@@ -36,7 +38,7 @@ from .const import (
     PERIODS,
     RATE_SCALES,
 )
-from .entity import EnergyReportEntity, ScheduleEntity
+from .entity import EnergyReportEntity, SettingEntity
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -52,19 +54,24 @@ async def async_setup_entry(
     data = options(entry)
     entities: list[SensorEntity] = [NextReport(entry, period) for period in PERIODS]
 
-    divisor = RATE_SCALES[data.get(CONF_RATE_SCALE, DEFAULT_RATE_SCALE)]
-    for key, name, slug in (
-        (CONF_IMPORT_RATE, "Import rate", "import_rate"),
-        (CONF_EXPORT_RATE, "Export rate", "export_rate"),
+    divisor = RATE_SCALES[data.get(CONF_RATE_SCALE) or DEFAULT_RATE_SCALE]
+    for key, fallback_key, name, slug in (
+        (CONF_IMPORT_RATE, CONF_FALLBACK_IMPORT_RATE, "Import rate (recorded)", "import_rate"),
+        (CONF_EXPORT_RATE, CONF_FALLBACK_EXPORT_RATE, "Export rate (recorded)", "export_rate"),
     ):
         if data.get(key):
-            entities.append(RateMirror(entry, data[key], name, slug, divisor))
+            entities.append(RateMirror(entry, data[key], name, slug, divisor,
+                                       data.get(fallback_key)))
 
     async_add_entities(entities)
 
 
 class RateMirror(EnergyReportEntity, RestoreSensor):
     """Copy a price into a sensor the recorder will keep statistics for.
+
+    This is not the fallback. It is the rate the reports use, recorded from the
+    entity picked under Prices; its attributes say which one. The fallback is
+    only for periods from before this sensor started recording.
 
     The last price survives a restart. Straight after one, the source is often
     unknown for a few minutes - Predbat republishes its entities on its next
@@ -75,12 +82,20 @@ class RateMirror(EnergyReportEntity, RestoreSensor):
     _attr_icon = "mdi:cash"
 
     def __init__(
-        self, entry: ConfigEntry, source: str, name: str, slug: str, divisor: float
+        self, entry: ConfigEntry, source: str, name: str, slug: str, divisor: float,
+        fallback: float | None,
     ) -> None:
         super().__init__(entry, name, slug)
         self._source = source
         self._divisor = divisor or 1.0
         self._value: float | None = None
+        self._attr_extra_state_attributes = {
+            "recorded_from": source,
+            "source_units": "hundredths per kWh" if self._divisor == 100 else "whole units per kWh",
+            # Only for periods before this sensor recorded anything, and only
+            # when the source has no average of its own (Predbat's has one).
+            "configured_fallback_rate": round(float(fallback) / self._divisor, 6) if fallback else None,
+        }
 
     @property
     def native_value(self) -> float | None:
@@ -131,7 +146,7 @@ class RateMirror(EnergyReportEntity, RestoreSensor):
         self.async_write_ha_state()
 
 
-class NextReport(ScheduleEntity, SensorEntity):
+class NextReport(SettingEntity, SensorEntity):
     """When a report next goes out; unknown while that report is turned off.
 
     The daily one shows the later of the chosen time and sunset, when it is set

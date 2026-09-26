@@ -13,7 +13,7 @@ from homeassistant.util import dt as dt_util
 
 from . import options
 from .const import PERIOD_TIME
-from .entity import ScheduleEntity
+from .entity import SettingEntity
 
 
 async def async_setup_entry(
@@ -25,7 +25,7 @@ async def async_setup_entry(
     )
 
 
-class ReportTime(ScheduleEntity, TimeEntity):
+class ReportTime(SettingEntity, TimeEntity):
     _attr_entity_category = EntityCategory.CONFIG
     _attr_icon = "mdi:clock-outline"
 

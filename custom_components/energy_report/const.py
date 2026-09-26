@@ -61,11 +61,17 @@ CONF_ENABLE_DAILY: Final = "enable_daily"
 CONF_ENABLE_WEEKLY: Final = "enable_weekly"
 CONF_ENABLE_MONTHLY: Final = "enable_monthly"
 
-# Changing only these reschedules the reports; anything else reloads the entry.
+# Settings that take effect without reloading the entry: the schedule is
+# rearmed, and messaging is read afresh each time a report is sent. Changing
+# anything else - entities, prices - reloads.
 SCHEDULE_KEYS: Final = frozenset({
     CONF_ENABLE_DAILY, CONF_DAILY_TIME, CONF_DAILY_AFTER_SUNSET,
     CONF_ENABLE_WEEKLY, CONF_WEEKLY_TIME,
     CONF_ENABLE_MONTHLY, CONF_MONTHLY_TIME,
+})
+MESSAGING_KEYS: Final = frozenset({
+    CONF_DELIVERY, CONF_TELEGRAM_ENTITIES, CONF_TELEGRAM_CHAT_IDS,
+    CONF_NOTIFY_ENTITIES, CONF_NOTIFY_SERVICE,
 })
 
 DEFAULT_CURRENCY: Final = "£"
@@ -97,7 +103,8 @@ PERIOD_TIME: Final = {
     PERIOD_MONTHLY: (CONF_MONTHLY_TIME, DEFAULT_MONTHLY_TIME),
 }
 
-# Sent whenever the next run times change, so the entities showing them update.
+# Sent whenever settings or the next run times change, so the entities showing
+# them update.
 SIGNAL_SCHEDULE: Final = "energy_report_schedule_{}"
 
 SERVICE_GENERATE: Final = "generate"

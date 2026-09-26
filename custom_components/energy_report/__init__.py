@@ -53,6 +53,7 @@ from .const import (
     PERIOD_WEEKLY,
     PERIODS,
     RATE_SCALES,
+    MESSAGING_KEYS,
     SCHEDULE_KEYS,
     SERVICE_GENERATE,
     SERVICE_SEND,
@@ -65,7 +66,8 @@ from .statistics import collect
 from .window import span_label, window_for
 
 _LOGGER = logging.getLogger(__name__)
-PLATFORMS = [Platform.BUTTON, Platform.SENSOR, Platform.SWITCH, Platform.TIME]
+PLATFORMS = [Platform.BUTTON, Platform.SELECT, Platform.SENSOR, Platform.SWITCH,
+             Platform.TEXT, Platform.TIME]
 
 SERVICE_SCHEMA = vol.Schema(
     {
@@ -101,11 +103,11 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
 
 async def _updated(hass: HomeAssistant, entry: ConfigEntry) -> None:
-    """Reschedule when only the schedule changed, reload for anything else.
+    """Apply schedule and messaging changes in place; reload for anything else.
 
-    The schedule switches and time pickers write options on every change; a
-    full reload for each would recreate every entity, rate mirrors included,
-    each time a switch is flicked.
+    The device-page controls write options on every change; a full reload for
+    each would recreate every entity, rate mirrors included, each time a switch
+    is flicked.
     """
     runtime = hass.data[DOMAIN][entry.entry_id]
     old, new = runtime["config"], options(entry)
@@ -113,8 +115,12 @@ async def _updated(hass: HomeAssistant, entry: ConfigEntry) -> None:
     changed = {key for key in old.keys() | new.keys() if old.get(key) != new.get(key)}
     if not changed:
         return
-    if changed <= SCHEDULE_KEYS:
-        _schedule_all(hass, entry)
+    if changed <= SCHEDULE_KEYS | MESSAGING_KEYS:
+        # _schedule_all signals the entities to refresh; messaging needs only that.
+        if changed & SCHEDULE_KEYS:
+            _schedule_all(hass, entry)
+        else:
+            async_dispatcher_send(hass, SIGNAL_SCHEDULE.format(entry.entry_id))
         return
     await hass.config_entries.async_reload(entry.entry_id)
 

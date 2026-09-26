@@ -1,4 +1,4 @@
-"""Energy Report: a priced summary of where your solar, battery and grid energy went."""
+"""Solar & Battery reports: a priced summary of where your solar, battery and grid energy went."""
 
 from __future__ import annotations
 
@@ -46,6 +46,8 @@ from .const import (
     DELIVERY_NOTIFY_SERVICE,
     DELIVERY_TELEGRAM,
     DOMAIN,
+    NAME,
+    OLD_NAME,
     PERIOD_DAILY,
     PERIOD_ENABLE,
     PERIOD_RESOLUTION,
@@ -80,6 +82,10 @@ SERVICE_SCHEMA = vol.Schema(
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+    if entry.title == OLD_NAME:
+        # Renamed in 0.6.0. Only the default title is changed, never one the user
+        # chose; entity IDs already registered stay as they are.
+        hass.config_entries.async_update_entry(entry, title=NAME)
     hass.data.setdefault(DOMAIN, {})[entry.entry_id] = {
         "timers": {}, "next": {}, "config": options(entry),
     }
@@ -283,9 +289,9 @@ def _register_services(hass: HomeAssistant) -> None:
             for entry in entries:
                 if entry.entry_id == entry_id:
                     return entry
-            raise vol.Invalid(f"no Energy Report entry with id {entry_id}")
+            raise vol.Invalid(f"no {NAME} entry with id {entry_id}")
         if not entries:
-            raise vol.Invalid("Energy Report is not set up")
+            raise vol.Invalid(f"{NAME} is not set up")
         return entries[0]
 
     async def generate(call: ServiceCall) -> ServiceResponse:
@@ -325,7 +331,7 @@ async def deliver(hass: HomeAssistant, entry: ConfigEntry, message: str) -> None
         entities = config.get(CONF_TELEGRAM_ENTITIES) or []
         chat_ids = config.get(CONF_TELEGRAM_CHAT_IDS) or []
         if not entities and not chat_ids:
-            raise HomeAssistantError("Energy Report: no Telegram chat is configured")
+            raise HomeAssistantError(f"{NAME}: no Telegram chat is configured")
         # Two calls rather than one: which of entity_id and chat_id the bot
         # honours when it is given both has changed between releases.
         if entities:
@@ -339,7 +345,7 @@ async def deliver(hass: HomeAssistant, entry: ConfigEntry, message: str) -> None
     if method == DELIVERY_NOTIFY_ENTITY:
         entities = config.get(CONF_NOTIFY_ENTITIES) or []
         if not entities:
-            raise HomeAssistantError("Energy Report: no notify entity is configured")
+            raise HomeAssistantError(f"{NAME}: no notify entity is configured")
         await hass.services.async_call(
             "notify", "send_message", {"entity_id": entities, "message": plain(message)},
             blocking=True)
@@ -356,7 +362,7 @@ async def deliver(hass: HomeAssistant, entry: ConfigEntry, message: str) -> None
         return
 
     raise HomeAssistantError(
-        "Energy Report: no delivery is configured. Choose one under Configure, "
+        f"{NAME}: no messaging is configured. Choose it on the device page or under Configure, "
         f"or use {DOMAIN}.{SERVICE_GENERATE} and send the message yourself."
     )
 

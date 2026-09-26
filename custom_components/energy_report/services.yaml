@@ -14,7 +14,7 @@ generate:
           options: [daily, weekly, monthly]
     entry_id:
       name: Entry
-      description: Which Energy Report entry to use, if you have more than one.
+      description: Which Solar & Battery reports entry to use, if you have more than one.
       selector:
         text:
     start:
@@ -44,7 +44,7 @@ send:
           options: [daily, weekly, monthly]
     entry_id:
       name: Entry
-      description: Which Energy Report entry to use, if you have more than one.
+      description: Which Solar & Battery reports entry to use, if you have more than one.
       selector:
         text:
     start:

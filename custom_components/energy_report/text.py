@@ -39,7 +39,7 @@ REASONS = {
     "no_telegram": "The Telegram bot integration is not set up, so there is nothing to send through.",
     "unknown_service": "There is no such service. Check the name under Developer tools > Actions.",
     "not_notify": "Give notify entities, for example notify.my_phone.",
-    "none": "Messaging is set to don't send. Choose a method in Messaging first.",
+    "none": "Messaging method is set to don't send. Choose a method first.",
 }
 
 
@@ -59,7 +59,7 @@ class SendTo(SettingEntity, TextEntity):
     _attr_native_max = 255
 
     def __init__(self, entry: ConfigEntry) -> None:
-        super().__init__(entry, "Send to", "send_to")
+        super().__init__(entry, "Messaging send to", "send_to")
 
     @property
     def native_value(self) -> str:

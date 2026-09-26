@@ -1,4 +1,4 @@
-# Energy Report
+# Solar & Battery reports
 
 A daily, weekly and monthly summary of where your solar, battery and grid energy
 actually went, and what it was worth, delivered through any Home Assistant
@@ -104,14 +104,14 @@ by 0.1 kWh.
 [![Open in HACS](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=pietrouk&repository=ha-energy-report&category=integration)
 
 Or add this repository as a custom repository (category: Integration). Then
-download **Energy Report** and restart Home Assistant.
+download **Solar & Battery reports** and restart Home Assistant.
 
 ### Manually
 
 Copy `custom_components/energy_report` into your `config/custom_components/`
 folder and restart.
 
-Then go to **Settings → Devices & services → Add integration → Energy Report**.
+Then go to **Settings → Devices & services → Add integration → Solar & Battery reports**.
 
 ## Setting it up
 
@@ -203,7 +203,7 @@ any state other than the one you set, the report shows zero and says why.
 
 ## Changing settings later
 
-**Settings → Devices & services → Energy Report → Configure** opens a menu
+**Settings → Devices & services → Solar & Battery reports → Configure** opens a menu
 that shows what is set now, with an entry for each part: messaging (Telegram,
 phone, notify), schedule, energy entities, and prices and planner savings. Each
 one saves on its own. The device page links there too (**Visit**).
@@ -216,8 +216,8 @@ The device page has the everyday controls:
 
 | Entity | What it does |
 |---|---|
-| Messaging | Telegram, notify entity, notify service, or don't send |
-| Send to | where it goes, comma separated: Telegram chat entities and/or chat IDs, notify entities, or one service name. A bad value is refused with the reason |
+| Messaging method | Telegram, notify entity, notify service, or don't send |
+| Messaging send to | where it goes, comma separated: Telegram chat entities and/or chat IDs, notify entities, or one service name. A bad value is refused with the reason |
 | Daily / Weekly / Monthly report | switches that turn each report on or off |
 | Daily / Weekly / Monthly report time | when each one goes out |
 | Daily report waits for sunset | whether the daily one waits for a later sunset |

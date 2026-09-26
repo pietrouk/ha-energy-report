@@ -30,7 +30,7 @@ class MessagingSelect(SettingEntity, SelectEntity):
     _attr_options = DELIVERY_METHODS
 
     def __init__(self, entry: ConfigEntry) -> None:
-        super().__init__(entry, "Messaging", "messaging")
+        super().__init__(entry, "Messaging method", "messaging")
 
     @property
     def current_option(self) -> str:

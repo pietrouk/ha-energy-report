@@ -5,6 +5,10 @@ from __future__ import annotations
 from typing import Final
 
 DOMAIN: Final = "energy_report"
+# What people see. The domain stays energy_report so existing installs, entity
+# IDs and automations calling energy_report.generate keep working.
+NAME: Final = "Solar & Battery reports"
+OLD_NAME: Final = "Energy Report"
 
 # --- energy sources. Every one must be a sensor with long-term statistics,
 # that is state_class total or total_increasing. A power sensor (state_class

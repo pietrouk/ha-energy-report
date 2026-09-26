@@ -21,7 +21,6 @@ class EnergyReportEntity(Entity):
         self._attr_device_info = DeviceInfo(
             identifiers={(DOMAIN, entry.entry_id)},
             name=entry.title,
-            manufacturer="Energy Report",
             entry_type=DeviceEntryType.SERVICE,
             # Shown on the device page as a link to where Configure lives, for
             # the energy entities, prices and delivery.

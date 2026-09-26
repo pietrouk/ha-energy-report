@@ -15,7 +15,7 @@
       },
       "rates": {
         "title": "Prices",
-        "description": "**Price entities** hold your live rate, and are what every report is priced from. Pick the entity your tariff comes from, for example Predbat's predbat.rates and predbat.rates_export (in pence: choose hundredths), or an Octopus rate sensor such as Predbat's sensor.predbat_octopus_…_import_rates (in pounds: choose whole units). It does not have to be in the sensor domain.\n\nEach one is recorded as Energy Report Import rate (recorded) / Export rate (recorded), so every five minutes is priced at the rate in force at the time. Those sensors are copies of your price entity, not the fallback.\n\n**Fallback prices** only matter for periods from before recording started - the first reports after installing. For those periods the price entity's own average is used if it has one (Predbat's does); otherwise this number; otherwise, at 0, the average of what was recorded. Never the price showing when the report runs, which in the evening is usually the peak.\n\n**Planner savings** (optional): a running total of savings such as Predbat's, shown at the end of the report but not added to the total.",
+        "description": "**Price entities** hold your live rate, and are what every report is priced from. Pick the entity your tariff comes from, for example Predbat's predbat.rates and predbat.rates_export (in pence: choose hundredths), or an Octopus rate sensor such as Predbat's sensor.predbat_octopus_…_import_rates (in pounds: choose whole units). It does not have to be in the sensor domain.\n\nEach one is recorded as Import rate (recorded) / Export rate (recorded), so every five minutes is priced at the rate in force at the time. Those sensors are copies of your price entity, not the fallback.\n\n**Fallback prices** only matter for periods from before recording started - the first reports after installing. For those periods the price entity's own average is used if it has one (Predbat's does); otherwise this number; otherwise, at 0, the average of what was recorded. Never the price showing when the report runs, which in the evening is usually the peak.\n\n**Planner savings** (optional): a running total of savings such as Predbat's, shown at the end of the report but not added to the total.",
         "data": {
           "import_rate": "Import price entity (your live rate)",
           "export_rate": "Export price entity (your live rate)",
@@ -72,7 +72,7 @@
   "options": {
     "step": {
       "init": {
-        "title": "Energy Report settings",
+        "title": "Solar & Battery reports settings",
         "menu_options": {
           "delivery": "Messaging (Telegram, phone, notify)",
           "schedule": "Schedule (daily, weekly, monthly)",
@@ -95,7 +95,7 @@
       },
       "rates": {
         "title": "Prices and planner savings",
-        "description": "**Price entities** hold your live rate, and are what every report is priced from. Pick the entity your tariff comes from, for example Predbat's predbat.rates and predbat.rates_export (in pence: choose hundredths), or an Octopus rate sensor such as Predbat's sensor.predbat_octopus_…_import_rates (in pounds: choose whole units). It does not have to be in the sensor domain.\n\nEach one is recorded as Energy Report Import rate (recorded) / Export rate (recorded), so every five minutes is priced at the rate in force at the time. Those sensors are copies of your price entity, not the fallback.\n\n**Fallback prices** only matter for periods from before recording started - the first reports after installing. For those periods the price entity's own average is used if it has one (Predbat's does); otherwise this number; otherwise, at 0, the average of what was recorded. Never the price showing when the report runs, which in the evening is usually the peak.\n\n**Planner savings** (optional): a running total of savings such as Predbat's, shown at the end of the report but not added to the total.",
+        "description": "**Price entities** hold your live rate, and are what every report is priced from. Pick the entity your tariff comes from, for example Predbat's predbat.rates and predbat.rates_export (in pence: choose hundredths), or an Octopus rate sensor such as Predbat's sensor.predbat_octopus_…_import_rates (in pounds: choose whole units). It does not have to be in the sensor domain.\n\nEach one is recorded as Import rate (recorded) / Export rate (recorded), so every five minutes is priced at the rate in force at the time. Those sensors are copies of your price entity, not the fallback.\n\n**Fallback prices** only matter for periods from before recording started - the first reports after installing. For those periods the price entity's own average is used if it has one (Predbat's does); otherwise this number; otherwise, at 0, the average of what was recorded. Never the price showing when the report runs, which in the evening is usually the peak.\n\n**Planner savings** (optional): a running total of savings such as Predbat's, shown at the end of the report but not added to the total.",
         "data": {
           "import_rate": "Import price entity (your live rate)",
           "export_rate": "Export price entity (your live rate)",

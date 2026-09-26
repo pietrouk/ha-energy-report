@@ -71,6 +71,7 @@ from .const import (
     DELIVERY_NOTIFY_SERVICE,
     DELIVERY_TELEGRAM,
     DOMAIN,
+    NAME,
     STATISTIC_STATE_CLASSES,
 )
 
@@ -392,7 +393,7 @@ class EnergyReportConfigFlow(ConfigFlow, domain=DOMAIN):
     async def async_step_schedule(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
         if user_input is not None:
             self._data.update(user_input)
-            return self.async_create_entry(title="Energy Report", data=self._data)
+            return self.async_create_entry(title=NAME, data=self._data)
         return self.async_show_form(step_id="schedule", data_schema=_schedule_schema({}))
 
     @staticmethod

@@ -24,6 +24,10 @@ CONF_DISCHARGE_ENERGY: Final = "discharge_energy"
 
 # --- optional: a PV power sensor (W, state_class measurement), for the peak.
 CONF_PV_POWER: Final = "pv_power"
+# --- optional: a battery level sensor (%), for the daily report's peak charge.
+# Read from the recorder's state history, not statistics, so the time is the
+# minute it happened rather than the five-minute bucket it fell in.
+CONF_BATTERY_SOC: Final = "battery_soc"
 
 # --- rates. Any entity whose state is a number: a tariff sensor, or something
 # like predbat.rates that is not in the sensor domain at all and so gets no

@@ -8,6 +8,8 @@ Every chat ID here is made up.
 
 from __future__ import annotations
 
+from datetime import timedelta
+
 import pytest
 from homeassistant import config_entries
 from homeassistant.core import HomeAssistant
@@ -37,6 +39,7 @@ RATES = {
     "fallback_export_rate": 12,
     "currency": "£",
 }
+LEVEL = {"state_class": "measurement", "device_class": "battery", "unit_of_measurement": "%"}
 SCHEDULE = {
     "enable_daily": True, "daily_time": "19:00:00", "daily_after_sunset": True,
     "enable_weekly": False, "weekly_time": "08:00:00",
@@ -53,6 +56,7 @@ async def world(hass: HomeAssistant):
     hass.states.async_set("sensor.pv_power", "1200", {
         "state_class": "measurement", "device_class": "power", "unit_of_measurement": "W"})
     hass.states.async_set("sensor.pv_watts_total", "5", {"device_class": "power"})
+    hass.states.async_set("sensor.batt_level", "50", LEVEL)
     hass.states.async_set("sensor.tariff", "25.47")
     return {
         "telegram": async_mock_service(hass, "telegram_bot", "send_message"),
@@ -368,3 +372,48 @@ async def test_a_title_the_user_chose_is_kept(hass: HomeAssistant, world) -> Non
     assert await hass.config_entries.async_setup(entry.entry_id)
     await hass.async_block_till_done()
     assert entry.title == "Home energy"
+
+
+async def test_daily_report_says_when_the_battery_first_peaked(hass: HomeAssistant, world) -> None:
+    """Through the recorder's real state history: full at 14:15, a dip, full
+    again from 15:50 - the report gives 14:15, to the minute."""
+    from pytest_homeassistant_custom_component.components.recorder.common import (
+        async_wait_recording_done,
+    )
+
+    await _setup(hass, delivery="none", battery_soc="sensor.batt_level")
+    end = dt_util.start_of_local_day()
+    start = end - timedelta(days=1)
+    for hour, minute, level in ((10, 0, "62"), (14, 15, "100"), (15, 5, "99"),
+                                (15, 50, "100"), (16, 10, "unavailable"), (16, 11, "97")):
+        moment = start.replace(hour=hour, minute=minute, second=7)
+        hass.states.async_set("sensor.batt_level", level, LEVEL, timestamp=moment.timestamp())
+    await async_wait_recording_done(hass)
+
+    daily = await hass.services.async_call(
+        DOMAIN, "generate", {"period": "daily", "start": start, "end": end},
+        blocking=True, return_response=True)
+    battery = daily["message"].split("🔋 Battery</b>\n", 1)[1].split("\n\n", 1)[0]
+    assert battery.splitlines()[-1] == "Peak charge 100%, first reached at 14:15"
+    assert daily["battery_peak_percent"] == 100.0
+    assert dt_util.parse_datetime(daily["battery_peak_at"]) == start.replace(hour=14, minute=15, second=7)
+
+    weekly = await hass.services.async_call(
+        DOMAIN, "generate", {"period": "weekly", "start": start, "end": end},
+        blocking=True, return_response=True)
+    assert "Peak charge" not in weekly["message"]
+    assert weekly["battery_peak_percent"] is None
+
+
+async def test_battery_level_in_setup_and_configure(hass: HomeAssistant, world) -> None:
+    result = await hass.config_entries.flow.async_init(DOMAIN, context={"source": config_entries.SOURCE_USER})
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], {**ENERGY, "battery_soc": "sensor.nope"})
+    assert result["errors"] == {"battery_soc": "not_found"}
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], {**ENERGY, "battery_soc": "sensor.batt_level"})
+    assert result["step_id"] == "rates"
+
+    entry = await _setup(hass, delivery="none", battery_soc="sensor.batt_level")
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+    assert "battery level sensor.batt_level" in result["description_placeholders"]["energy"]

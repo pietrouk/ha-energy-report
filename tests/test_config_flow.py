@@ -32,7 +32,8 @@ EXISTING = {
 
 SCHEMAS = {
     "energy": lambda: cf._energy_schema({}),
-    "energy (filled)": lambda: cf._energy_schema({"pv_energy": "sensor.pv", "pv_power": "sensor.w"}),
+    "energy (filled)": lambda: cf._energy_schema({"pv_energy": "sensor.pv", "pv_power": "sensor.w",
+                                                  "battery_soc": "sensor.soc"}),
     "rates": lambda: cf._rates_schema({}),
     "rates (filled)": lambda: cf._rates_schema(EXISTING),
     "delivery": lambda: cf._delivery_schema({}),

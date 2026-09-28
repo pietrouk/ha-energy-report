@@ -2,7 +2,8 @@
 
 This is the only place that talks to the recorder. Everything downstream works
 on what this returns, which is what lets the arithmetic be tested without Home
-Assistant.
+Assistant. The battery level is the one thing read from state history rather
+than statistics, for the minute it peaked; see level_history().
 
 House load is not read. It is worked out per bucket from the counters, in
 report.split(). A house-load sensor built from the same counters agrees with that
@@ -16,8 +17,10 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass, field
 from datetime import datetime
+from functools import partial
 
 from homeassistant.components.recorder import get_instance
+from homeassistant.components.recorder.history import state_changes_during_period
 from homeassistant.components.recorder.statistics import statistics_during_period
 from homeassistant.core import HomeAssistant
 from homeassistant.util import dt as dt_util
@@ -26,7 +29,7 @@ from .report import Bucket
 
 _LOGGER = logging.getLogger(__name__)
 
-__all__ = ["Collected", "collect"]
+__all__ = ["Collected", "collect", "level_history"]
 
 
 @dataclass
@@ -152,3 +155,29 @@ async def collect(
             result.peak_at = dt_util.as_local(dt_util.utc_from_timestamp(slot))
 
     return result
+
+
+async def level_history(hass: HomeAssistant, entity_id: str, start: datetime,
+                        end: datetime) -> list[tuple[datetime, float]]:
+    """A level sensor's readings over the period, oldest first, in local time.
+
+    The first is the level in force as the period began, timed at start; then
+    every change. Readings that are not numbers - unavailable, unknown - are
+    left out. Five-minute statistics would only say which bucket a peak fell
+    in; the states say the minute it was reached, and a daily report never
+    looks back further than the recorder keeps them.
+    """
+    states = await get_instance(hass).async_add_executor_job(
+        partial(state_changes_during_period, hass, start, end, entity_id,
+                no_attributes=True, include_start_time_state=True))
+    readings: list[tuple[datetime, float]] = []
+    for state in states.get(entity_id) or []:
+        try:
+            level = float(state.state)
+        except (TypeError, ValueError):
+            continue
+        if level == level:  # not NaN
+            readings.append((dt_util.as_local(state.last_updated), level))
+    if not readings:
+        _LOGGER.debug("energy_report: no readings for %s in %s - %s", entity_id, start, end)
+    return readings

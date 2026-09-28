@@ -26,11 +26,11 @@ from __future__ import annotations
 
 import html
 import re
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from .report import Totals
 
-__all__ = ["peak_text", "render"]
+__all__ = ["charge_text", "peak_text", "render"]
 
 HEADINGS = {
     "daily": "Last 24 hours",
@@ -99,6 +99,23 @@ def peak_text(period: str, watts: float | None, at: datetime | None) -> str | No
     return f"{watts / 1000:.1f} kW {when}"
 
 
+def charge_text(level: float | None, at: datetime | None, end: datetime) -> str | None:
+    """'100%, first reached at 14:15', naming the day - 'at 23:30 on Sun' - when
+    it was not the day the period ended. A level only carried over from before
+    the period was not reached in it, and says so."""
+    if level is None:
+        return None
+    shown = f"{round(level + 0.0, 1):g}%"
+    if at is None:
+        return f"{shown}, already reached when the period began"
+    when = f"{at:%H:%M}"
+    # The period's last moment, so a window ending at midnight counts as the
+    # day before rather than the day it ends on.
+    if at.date() != (end - timedelta(microseconds=1)).date():
+        when += f" on {at:%a}"
+    return f"{shown}, first reached at {when}"
+
+
 BUCKET_MINUTES = {"daily": 5}
 
 
@@ -111,6 +128,7 @@ def render(
     arbitrage_note: str | None = None,
     has_battery: bool = True,
     peak: str | None = None,
+    charge: str | None = None,
 ) -> str:
     """Build the report text. Telegram-flavoured HTML; delivery strips the tags
     and unescapes it for anything that would show them."""
@@ -202,6 +220,8 @@ def render(
         else:
             net = "Net 0.0 kWh"
         lines += ["", "<b>🔋 Battery</b>", charged, supplied, net]
+        if charge:
+            lines.append(f"Peak charge {charge}")
 
     house_parts = f"{_kwh(s2h)} straight from solar"
     if has_battery:

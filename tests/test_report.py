@@ -24,9 +24,10 @@ stub.__path__ = [str(PACKAGE)]
 sys.modules["energy_report"] = stub
 
 _message = importlib.import_module("energy_report.message")
-render, peak_text = _message.render, _message.peak_text
+render, peak_text, charge_text = _message.render, _message.peak_text, _message.charge_text
 _report = importlib.import_module("energy_report.report")
 Bucket, summarise, split, choose_fallback = _report.Bucket, _report.summarise, _report.split, _report.choose_fallback
+first_peak = _report.first_peak
 _window = importlib.import_module("energy_report.window")
 span_label, window_for = _window.span_label, _window.window_for
 
@@ -392,6 +393,50 @@ for period in ("daily", "weekly", "monthly"):
     invariants(period, msg)
     adds_up(period, msg)
 
+print("\n== peak charge, daily")
+START, END = datetime(2026, 9, 27, 18, 55), datetime(2026, 9, 28, 18, 55)
+
+
+def on(day, hour, minute):
+    return datetime(2026, 9, day, hour, minute)
+
+
+# The readings level_history() hands over: the level carried over from before
+# the period, timed at its start, then every change.
+check("full at 14:15 and again from 15:50: the first time",
+      first_peak([(START, 62.0), (on(28, 9, 0), 80.0), (on(28, 14, 15), 100.0), (on(28, 15, 5), 99.0),
+                  (on(28, 15, 50), 100.0), (on(28, 16, 10), 97.0)], START), (100.0, on(28, 14, 15)))
+check("full as the period began and again later: when it got back there",
+      first_peak([(START, 100.0), (on(27, 19, 40), 98.0), (on(28, 14, 15), 100.0)], START), (100.0, on(28, 14, 15)))
+check("full only as the period began: no time",
+      first_peak([(START, 100.0), (on(27, 19, 40), 98.0), (on(28, 13, 0), 90.0)], START), (100.0, None))
+check("the same level after an unavailable gap is not a new peak",
+      first_peak([(START, 100.0), (on(27, 20, 1), 100.0), (on(28, 9, 0), 95.0)], START), (100.0, None))
+check("nothing before the period: its first reading can be the peak",
+      first_peak([(on(28, 10, 0), 70.0), (on(28, 11, 0), 60.0)], START), (70.0, on(28, 10, 0)))
+check("a fractional level", first_peak([(START, 50.0), (on(28, 12, 30), 87.34), (on(28, 12, 35), 87.3)], START),
+      (87.34, on(28, 12, 30)))
+check("nothing recorded", first_peak([], START), None)
+
+check("the day the report was sent: just the time", charge_text(100.0, on(28, 14, 15), END),
+      "100%, first reached at 14:15")
+check("the evening before: with the day", charge_text(100.0, on(27, 23, 30), END),
+      "100%, first reached at 23:30 on Sun")
+check("a period ending at midnight belongs to the day before",
+      charge_text(100.0, on(27, 14, 15), datetime(2026, 9, 28, 0, 0)), "100%, first reached at 14:15")
+check("only there as the period began", charge_text(100.0, None, END), "100%, already reached when the period began")
+check("a decimal only when there is one", charge_text(87.34, on(28, 12, 30), END), "87.3%, first reached at 12:30")
+check("no reading, no line", charge_text(None, None, END), None)
+
+full = plain(render(t, "daily", "x", charge=charge_text(100.0, on(28, 14, 15), END)))
+check("the peak charge closes the battery section", section(full, "🔋 Battery").splitlines()[-1],
+      "Peak charge 100%, first reached at 14:15")
+check("no peak charge line without a reading", "Peak charge" in plain(render(t, "daily", "x")), False)
+check("nor without a battery section",
+      "Peak charge" in render(t, "daily", "x", has_battery=False, charge="100%, first reached at 14:15"), False)
+invariants("peak charge", full)
+adds_up("peak charge", full)
+
 print("\n== negative and zero prices")
 # Octopus Agile goes negative: importing is paid for. The term keeps its meaning
 # and flips its sign, rather than printing "--£0.10".
@@ -430,7 +475,8 @@ for trial in range(300):
                       import_rate=rng.choice([0.1529, 0.2547, 0.3566, 0.0, -0.05, None]),
                       export_rate=rng.choice([0.12, 0.2143, -0.01, None]))
                for _ in range(rng.randint(1, 288))]
-    msg = render(summarise(buckets, 0.2547, 0.12), rng.choice(["daily", "weekly"]), "x")
+    msg = render(summarise(buckets, 0.2547, 0.12), rng.choice(["daily", "weekly"]), "x",
+                 charge=rng.choice([None, "100%, first reached at 14:15"]))
     before = failures
     with contextlib.redirect_stdout(io.StringIO()):
         invariants(f"trial {trial}", msg)

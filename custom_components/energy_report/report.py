@@ -40,8 +40,9 @@ Two things are wrong if worked out over a whole period:
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime
 
-__all__ = ["Bucket", "Totals", "choose_fallback", "summarise"]
+__all__ = ["Bucket", "Totals", "choose_fallback", "first_peak", "summarise"]
 
 
 @dataclass(frozen=True)
@@ -229,6 +230,34 @@ def summarise(
             t.unpriced_buckets += 1
 
     return t
+
+
+def first_peak(readings: list[tuple[datetime, float]],
+               start: datetime) -> tuple[float, datetime | None] | None:
+    """The highest level over a period, and when it was first reached.
+
+    readings are (time, level), oldest first. One timed at start itself is the
+    level carried over from before the period: it counts towards the peak, but
+    already being there is not reaching it. So a battery full at 14:15, down a
+    point, and full again from 15:50 reached its peak at 14:15 - and so did one
+    that began the period full, if it was full again at 14:15 after dipping.
+
+    The time is None when the level was at its peak only as the period began
+    and never got back there. None overall when there are no readings.
+    """
+    if not readings:
+        return None
+    peak = max(level for _, level in readings)
+    # Timestamps, not datetimes: a window given to the service can be naive,
+    # which cannot be compared with the recorder's aware times.
+    began = start.timestamp()
+    previous: float | None = None
+    for at, level in readings:
+        if level == peak and (previous < peak if previous is not None
+                              else at.timestamp() > began):
+            return peak, at
+        previous = level
+    return peak, None
 
 
 def choose_fallback(average: object, configured: object, recorded: list[float | None],

@@ -36,6 +36,7 @@ from .const import (
     CONF_ARBITRAGE_ENERGY,
     CONF_ARBITRAGE_GATE,
     CONF_ARBITRAGE_GATE_STATE,
+    CONF_BATTERY_SOC,
     CONF_CHARGE_ENERGY,
     CONF_CURRENCY,
     CONF_DAILY_AFTER_SUNSET,
@@ -81,10 +82,13 @@ ENERGY_SELECTOR = EntitySelector(
 POWER_SELECTOR = EntitySelector(
     EntitySelectorConfig(domain="sensor", device_class="power")
 )
+LEVEL_SELECTOR = EntitySelector(
+    EntitySelectorConfig(domain="sensor", device_class="battery")
+)
 ANY_SELECTOR = EntitySelector(EntitySelectorConfig())
 
 ENERGY_KEYS = (CONF_PV_ENERGY, CONF_IMPORT_ENERGY, CONF_EXPORT_ENERGY,
-               CONF_CHARGE_ENERGY, CONF_DISCHARGE_ENERGY, CONF_PV_POWER)
+               CONF_CHARGE_ENERGY, CONF_DISCHARGE_ENERGY, CONF_PV_POWER, CONF_BATTERY_SOC)
 
 
 def _suggest(defaults: dict[str, Any], key: str) -> dict[str, Any]:
@@ -101,6 +105,7 @@ def _energy_schema(defaults: dict[str, Any]) -> vol.Schema:
             vol.Optional(CONF_CHARGE_ENERGY, description=_suggest(defaults, CONF_CHARGE_ENERGY)): ENERGY_SELECTOR,
             vol.Optional(CONF_DISCHARGE_ENERGY, description=_suggest(defaults, CONF_DISCHARGE_ENERGY)): ENERGY_SELECTOR,
             vol.Optional(CONF_PV_POWER, description=_suggest(defaults, CONF_PV_POWER)): POWER_SELECTOR,
+            vol.Optional(CONF_BATTERY_SOC, description=_suggest(defaults, CONF_BATTERY_SOC)): LEVEL_SELECTOR,
         }
     )
 
@@ -234,6 +239,8 @@ def summary(hass: HomeAssistant, entry_id: str, config: dict[str, Any]) -> dict[
         energy.append(f"discharge {config.get(CONF_DISCHARGE_ENERGY)}")
     if config.get(CONF_PV_POWER):
         energy.append(f"solar power {config.get(CONF_PV_POWER)}")
+    if config.get(CONF_BATTERY_SOC):
+        energy.append(f"battery level {config.get(CONF_BATTERY_SOC)}")
 
     return {
         "delivery": delivery,
@@ -291,6 +298,8 @@ def _check_statistics(hass: HomeAssistant, user_input: dict[str, Any]) -> dict[s
 
     Energy counters need a "change", which only total / total_increasing give.
     The optional PV power sensor needs a "max", which only measurement gives.
+    The battery level is read from state history, which every recorded sensor
+    has, so it only has to exist.
     """
     errors: dict[str, str] = {}
     for key in ENERGY_KEYS:
@@ -302,6 +311,8 @@ def _check_statistics(hass: HomeAssistant, user_input: dict[str, Any]) -> dict[s
             errors[key] = "not_found"
             continue
         state_class = state.attributes.get("state_class")
+        if key == CONF_BATTERY_SOC:
+            continue
         if key == CONF_PV_POWER:
             if state_class != "measurement":
                 errors[key] = "not_a_measurement"

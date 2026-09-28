@@ -3,14 +3,15 @@
     "step": {
       "user": {
         "title": "Energy entities",
-        "description": "Pick the lifetime energy counters for your system. Each must be a sensor with a state class of total or total_increasing - a power sensor in watts will not work, because the report reads long-term statistics. House load is worked out from these, so there is nothing to pick for it. Optionally add a solar power sensor in watts to show the day's peak.",
+        "description": "Pick the lifetime energy counters for your system. Each must be a sensor with a state class of total or total_increasing - a power sensor in watts will not work, because the report reads long-term statistics. House load is worked out from these, so there is nothing to pick for it. Optionally add a solar power sensor in watts to show the day's power peak, and a battery level sensor in % to show the daily report's peak charge and when it was first reached.",
         "data": {
           "pv_energy": "Solar generated (kWh)",
           "import_energy": "Grid imported (kWh)",
           "export_energy": "Grid exported (kWh)",
           "charge_energy": "Battery charged (kWh)",
           "discharge_energy": "Battery discharged (kWh)",
-          "pv_power": "Solar power (W, optional, for the peak)"
+          "pv_power": "Solar power (W, optional, for the peak)",
+          "battery_soc": "Battery level (%, optional, for the daily peak charge)"
         }
       },
       "rates": {
@@ -83,14 +84,15 @@
       },
       "energy": {
         "title": "Energy entities",
-        "description": "The lifetime energy counters the report reads. Reports reach back through history, so a report covering a period from before a change reads the new counter for all of it. Change these when you replace a device or picked the wrong entity, not routinely.",
+        "description": "The lifetime energy counters the report reads. Reports reach back through history, so a report covering a period from before a change reads the new counter for all of it. Change these when you replace a device or picked the wrong entity, not routinely. The battery level only adds a line to the daily report and can be changed freely.",
         "data": {
           "pv_energy": "Solar generated (kWh)",
           "import_energy": "Grid imported (kWh)",
           "export_energy": "Grid exported (kWh)",
           "charge_energy": "Battery charged (kWh)",
           "discharge_energy": "Battery discharged (kWh)",
-          "pv_power": "Solar power (W, optional, for the peak)"
+          "pv_power": "Solar power (W, optional, for the peak)",
+          "battery_soc": "Battery level (%, optional, for the daily peak charge)"
         }
       },
       "rates": {

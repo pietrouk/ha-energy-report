@@ -22,6 +22,7 @@ Generated 13.5 kWh, with a power peak of 3.0 kW at 11:45
 Charged 8.5 kWh: 7.7 from solar, 0.8 imported at 16.5p for £0.14
 Supplied 6.2 kWh: 3.3 to the house, 2.9 exported at 12.0p for £0.34
 Net +2.3 kWh, stored for later, counted when it's used
+Peak charge 95%, first reached at 16:15 on Fri
 
 🏠 House
 Used 7.7 kWh, 95% from solar & battery, 7.3 kWh worth £1.86
@@ -148,9 +149,19 @@ rejects one rather than let the report silently return zeros.
 | Battery charged | no | leave both battery fields empty and the battery section disappears |
 | Battery discharged | no | |
 | Solar power | no | watts, `state_class: measurement`; adds the peak to the solar line |
+| Battery level | no | %, a battery-class sensor; adds the peak charge to the daily report |
 
 There's no house-load field. House load is calculated from the counters above,
 which keeps it in step with them inside every five-minute bucket.
+
+The battery level gives the daily report a line saying how full the battery got
+and when: "Peak charge 100%, first reached at 14:05". If it reached that level
+more than once, the first time counts. A time on the day before the report was
+sent carries the day, as in the sample above. A battery that was already there
+as the period began says so, unless it got back there later. The time comes from the
+recorder's state history, to the minute, rather than from five-minute
+statistics. Weekly and monthly reports leave the line out: over a week the
+battery is full on most sunny days, and the first of them says little.
 
 ### Prices
 
@@ -264,8 +275,10 @@ The response includes `message`; the totals `solar`, `house`, `imported`,
 `grid_to_house`, `grid_to_battery`) and the noise terms (`battery_churn`,
 `grid_hunting`); the money (`home_value`, `export_value`, `house_cost`,
 `battery_cost`, `total_earnings`, `arbitrage`); and `covered_percent`,
-`peak_watts`, `peak_at`, `estimated`, `buckets` and `unpriced_buckets`. That's
-enough to build your own card or message instead.
+`peak_watts`, `peak_at`, `battery_peak_percent`, `battery_peak_at` (daily
+only, and null when the battery was already at its peak as the period began),
+`estimated`, `buckets` and `unpriced_buckets`. That's enough to build your own
+card or message instead.
 
 ### `energy_report.send`
 

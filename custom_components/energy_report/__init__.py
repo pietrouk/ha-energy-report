@@ -23,6 +23,7 @@ from .const import (
     CONF_ARBITRAGE_ENERGY,
     CONF_ARBITRAGE_GATE,
     CONF_ARBITRAGE_GATE_STATE,
+    CONF_BATTERY_SOC,
     CONF_CHARGE_ENERGY,
     CONF_CURRENCY,
     CONF_DAILY_AFTER_SUNSET,
@@ -63,9 +64,9 @@ from .const import (
     SIGNAL_SCHEDULE,
 )
 from .config_flow import delivery_method
-from .message import peak_text, render
-from .report import choose_fallback, summarise
-from .statistics import collect
+from .message import charge_text, peak_text, render
+from .report import choose_fallback, first_peak, summarise
+from .statistics import collect, level_history
 from .window import span_label, window_for
 
 _LOGGER = logging.getLogger(__name__)
@@ -185,6 +186,12 @@ async def build(hass: HomeAssistant, entry: ConfigEntry, period: str,
     )
 
     arbitrage, note = _arbitrage(hass, config, collected.extras)
+    has_battery = bool(config.get(CONF_CHARGE_ENERGY) or config.get(CONF_DISCHARGE_ENERGY))
+    # Daily only: over a week or a month the battery is full most sunny days,
+    # and the first of them says little.
+    charge_peak = None
+    if period == PERIOD_DAILY and has_battery and (soc_id := config.get(CONF_BATTERY_SOC)):
+        charge_peak = first_peak(await level_history(hass, soc_id, start, end), start)
     text = render(
         totals,
         period,
@@ -192,8 +199,9 @@ async def build(hass: HomeAssistant, entry: ConfigEntry, period: str,
         currency=config.get(CONF_CURRENCY, DEFAULT_CURRENCY),
         arbitrage=arbitrage,
         arbitrage_note=note,
-        has_battery=bool(config.get(CONF_CHARGE_ENERGY) or config.get(CONF_DISCHARGE_ENERGY)),
+        has_battery=has_battery,
         peak=peak_text(period, collected.peak_watts, collected.peak_at),
+        charge=charge_text(*charge_peak, dt_util.as_local(end)) if charge_peak else None,
     )
 
     return {
@@ -225,6 +233,8 @@ async def build(hass: HomeAssistant, entry: ConfigEntry, period: str,
         "arbitrage": None if arbitrage is None else round(arbitrage, 4),
         "peak_watts": collected.peak_watts,
         "peak_at": collected.peak_at.isoformat() if collected.peak_at else None,
+        "battery_peak_percent": charge_peak[0] if charge_peak else None,
+        "battery_peak_at": charge_peak[1].isoformat() if charge_peak and charge_peak[1] else None,
         "estimated": totals.estimated,
         "buckets": totals.priced_buckets + totals.unpriced_buckets,
         "unpriced_buckets": totals.unpriced_buckets,

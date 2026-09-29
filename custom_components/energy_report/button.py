@@ -1,4 +1,4 @@
-"""Send a report now, through the configured delivery."""
+"""Send a report now, through the configured delivery, or preview it here."""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-from . import run
+from . import preview, run
 from .const import PERIODS
 from .entity import EnergyReportEntity
 
@@ -15,7 +15,8 @@ from .entity import EnergyReportEntity
 async def async_setup_entry(
     hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback
 ) -> None:
-    async_add_entities(SendButton(entry, period) for period in PERIODS)
+    async_add_entities([*(SendButton(entry, period) for period in PERIODS),
+                        *(PreviewButton(entry, period) for period in PERIODS)])
 
 
 class SendButton(EnergyReportEntity, ButtonEntity):
@@ -29,3 +30,17 @@ class SendButton(EnergyReportEntity, ButtonEntity):
         # Errors are left to propagate: pressed from the UI, "no delivery is
         # configured" is exactly what the user needs to see.
         await run(self.hass, self._entry, self._period)
+
+
+class PreviewButton(EnergyReportEntity, ButtonEntity):
+    """Build a report without sending it: it appears as a notification in Home
+    Assistant and on the Report preview sensor."""
+
+    _attr_icon = "mdi:file-eye-outline"
+
+    def __init__(self, entry: ConfigEntry, period: str) -> None:
+        super().__init__(entry, f"Preview {period} report", f"preview_{period}")
+        self._period = period
+
+    async def async_press(self) -> None:
+        await preview(self.hass, self._entry, self._period)

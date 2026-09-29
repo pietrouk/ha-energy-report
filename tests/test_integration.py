@@ -121,6 +121,8 @@ async def test_device_page_entities(hass: HomeAssistant, world) -> None:
         "time.solar_battery_reports_monthly_report_time",
         "button.solar_battery_reports_send_daily_report_now", "button.solar_battery_reports_send_weekly_report_now",
         "button.solar_battery_reports_send_monthly_report_now",
+        "button.solar_battery_reports_preview_daily_report", "button.solar_battery_reports_preview_weekly_report",
+        "button.solar_battery_reports_preview_monthly_report", "sensor.solar_battery_reports_report_preview",
         "sensor.solar_battery_reports_next_daily_report", "sensor.solar_battery_reports_next_weekly_report",
         "sensor.solar_battery_reports_next_monthly_report", "sensor.solar_battery_reports_import_rate_recorded",
         "select.solar_battery_reports_messaging_method", "text.solar_battery_reports_messaging_send_to",
@@ -448,3 +450,33 @@ async def test_bill_carries_the_standing_charge_for_the_days_covered(hass: HomeA
     line, _ = await bill(standing_charge_entity="sensor.standing", standing_charge=40,
                          standing_charge_scale="per_kwh_minor")
     assert line.endswith(", £2.80 standing charge")
+
+
+async def test_preview_shows_the_report_without_sending_it(hass: HomeAssistant, world) -> None:
+    from homeassistant.components.persistent_notification import _async_get_or_create_notifications
+
+    await _setup(hass, delivery="telegram", telegram_chat_ids=[CHAT])
+    assert hass.states.get("sensor.solar_battery_reports_report_preview").state == "unknown"
+
+    await hass.services.async_call("button", "press",
+                                   {"entity_id": "button.solar_battery_reports_preview_weekly_report"}, blocking=True)
+    await hass.async_block_till_done()
+    assert world["telegram"] == [] and world["notify"] == []
+
+    (notification,) = [n for key, n in _async_get_or_create_notifications(hass).items() if "preview" in key]
+    assert notification["title"] == "Weekly report preview (not sent)"
+    assert notification["message"].startswith("**SOLAR & BATTERY REPORT**  \nLast week (")
+    assert "**🧾 Bill**  \nBill total " in notification["message"]
+
+    state = hass.states.get("sensor.solar_battery_reports_report_preview")
+    assert state.state.startswith("Weekly: ")
+    assert state.attributes["message"].startswith("SOLAR & BATTERY REPORT\nLast week (")
+    assert "<b>" not in state.attributes["message"]
+
+    # A second preview replaces the first rather than piling up.
+    await hass.services.async_call("button", "press",
+                                   {"entity_id": "button.solar_battery_reports_preview_monthly_report"}, blocking=True)
+    await hass.async_block_till_done()
+    previews = [n for key, n in _async_get_or_create_notifications(hass).items() if "preview" in key]
+    assert [n["title"] for n in previews] == ["Monthly report preview (not sent)"]
+    assert hass.states.get("sensor.solar_battery_reports_report_preview").state.startswith("Monthly: ")

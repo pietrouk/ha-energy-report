@@ -276,6 +276,8 @@ The device page has the everyday controls:
 | Daily / Weekly / Monthly report time | when each one goes out |
 | Daily report waits for sunset | whether the daily one waits for a later sunset |
 | Send daily / weekly / monthly report now | buttons that build and send one straight away |
+| Preview daily / weekly / monthly report | buttons that build one **without sending it**. It appears as a notification in Home Assistant, formatted, and each new preview replaces the last |
+| Report preview | which report was last previewed; its `message` attribute holds the text |
 | Next daily / weekly / monthly report | when each one next goes out, sunset included; unknown while that report is off |
 | Import / Export rate (recorded) | the rate the reports are priced from, recorded from your price entity (its `recorded_from` attribute says which). Not the fallback. Keeps its last price across a restart |
 
@@ -292,7 +294,8 @@ data:
 response_variable: report
 ```
 
-The response includes `message`; the totals `solar`, `house`, `imported`,
+The response includes `message` and `span` (the window, as the report
+names it); the totals `solar`, `house`, `imported`,
 `exported`, `charged` and `discharged`; each flow (`solar_to_house`,
 `solar_to_battery`, `solar_to_grid`, `battery_to_house`, `battery_to_grid`,
 `grid_to_house`, `grid_to_battery`) and the noise terms (`battery_churn`,

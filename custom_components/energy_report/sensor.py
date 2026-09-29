@@ -1,4 +1,4 @@
-"""Sensors: rate mirrors, and when each report next goes out.
+"""Sensors: rate mirrors, when each report next goes out, and the last preview.
 
 A rate mirror copies whatever entity holds the current price into a real sensor
 the recorder keeps statistics for. The price source is often not in the sensor
@@ -22,10 +22,11 @@ from homeassistant.components.sensor import (
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import EntityCategory
 from homeassistant.core import Event, EventStateChangedData, HomeAssistant, callback
+from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.event import async_track_state_change_event, async_track_time_interval
 
-from . import options
+from . import options, plain
 from .const import (
     CONF_CURRENCY,
     CONF_EXPORT_RATE,
@@ -37,6 +38,7 @@ from .const import (
     DOMAIN,
     PERIODS,
     RATE_SCALES,
+    SIGNAL_PREVIEW,
 )
 from .entity import EnergyReportEntity, SettingEntity
 
@@ -53,6 +55,7 @@ async def async_setup_entry(
 ) -> None:
     data = options(entry)
     entities: list[SensorEntity] = [NextReport(entry, period) for period in PERIODS]
+    entities.append(ReportPreview(entry))
 
     divisor = RATE_SCALES[data.get(CONF_RATE_SCALE) or DEFAULT_RATE_SCALE]
     for key, fallback_key, name, slug in (
@@ -165,3 +168,45 @@ class NextReport(SettingEntity, SensorEntity):
     def native_value(self) -> datetime | None:
         runtime = self.hass.data.get(DOMAIN, {}).get(self._entry.entry_id, {})
         return runtime.get("next", {}).get(self._period)
+
+
+class ReportPreview(EnergyReportEntity, SensorEntity):
+    """The last report built by a Preview button, never sent.
+
+    A state holds 255 characters at most, so the state names the report and the
+    message itself is an attribute - kept out of the database, since the
+    notification already shows it formatted.
+    """
+
+    _attr_icon = "mdi:file-eye-outline"
+    _unrecorded_attributes = frozenset({"message"})
+
+    def __init__(self, entry: ConfigEntry) -> None:
+        super().__init__(entry, "Report preview", "preview")
+
+    async def async_added_to_hass(self) -> None:
+        await super().async_added_to_hass()
+        self.async_on_remove(async_dispatcher_connect(
+            self.hass, SIGNAL_PREVIEW.format(self._entry.entry_id), self.async_write_ha_state))
+
+    @property
+    def _preview(self) -> dict | None:
+        return self.hass.data.get(DOMAIN, {}).get(self._entry.entry_id, {}).get("preview")
+
+    @property
+    def native_value(self) -> str | None:
+        if (shown := self._preview) is None:
+            return None
+        return f"{shown['period'].capitalize()}: {shown['span']}"
+
+    @property
+    def extra_state_attributes(self) -> dict | None:
+        if (shown := self._preview) is None:
+            return None
+        return {
+            "message": plain(shown["message"]),
+            "period": shown["period"],
+            "start": shown["start"],
+            "end": shown["end"],
+            "generated_at": shown["generated_at"].isoformat(),
+        }

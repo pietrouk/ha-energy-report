@@ -9,6 +9,7 @@ import re
 from datetime import datetime, time, timedelta
 
 import voluptuous as vol
+from homeassistant.components import persistent_notification
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant, ServiceCall, ServiceResponse, SupportsResponse
@@ -64,6 +65,7 @@ from .const import (
     SCHEDULE_KEYS,
     SERVICE_GENERATE,
     SERVICE_SEND,
+    SIGNAL_PREVIEW,
     SIGNAL_SCHEDULE,
 )
 from .config_flow import delivery_method
@@ -92,7 +94,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         # chose; entity IDs already registered stay as they are.
         hass.config_entries.async_update_entry(entry, title=NAME)
     hass.data.setdefault(DOMAIN, {})[entry.entry_id] = {
-        "timers": {}, "next": {}, "config": options(entry),
+        "timers": {}, "next": {}, "config": options(entry), "preview": None,
     }
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     entry.async_on_unload(entry.add_update_listener(_updated))
@@ -212,6 +214,7 @@ async def build(hass: HomeAssistant, entry: ConfigEntry, period: str,
     return {
         "message": text,
         "period": period,
+        "span": span_label(period, start, end),
         "start": start.isoformat(),
         "end": end.isoformat(),
         "solar": round(totals.pv, 3),
@@ -408,6 +411,26 @@ async def deliver(hass: HomeAssistant, entry: ConfigEntry, message: str) -> None
         f"{NAME}: no messaging is configured. Choose it on the device page or under Configure, "
         f"or use {DOMAIN}.{SERVICE_GENERATE} and send the message yourself."
     )
+
+
+def markdown(message: str) -> str:
+    """The message as Markdown, for a notification in Home Assistant itself:
+    bold and italic kept, and every line break kept as one."""
+    text = re.sub(r"</?i>", "*", re.sub(r"</?b>", "**", message))
+    return html.unescape(text).replace("\n", "  \n")
+
+
+async def preview(hass: HomeAssistant, entry: ConfigEntry, period: str) -> dict:
+    """Build a report and show it in Home Assistant, sending nothing: as a
+    notification, formatted, and on the Report preview sensor."""
+    result = await build(hass, entry, period)
+    hass.data[DOMAIN][entry.entry_id]["preview"] = result | {"generated_at": dt_util.now()}
+    async_dispatcher_send(hass, SIGNAL_PREVIEW.format(entry.entry_id))
+    # One notification per entry, replaced by the next preview.
+    persistent_notification.async_create(
+        hass, markdown(result["message"]), title=f"{period.capitalize()} report preview (not sent)",
+        notification_id=f"{DOMAIN}_{entry.entry_id}_preview")
+    return result
 
 
 async def run(hass: HomeAssistant, entry: ConfigEntry, period: str) -> dict:

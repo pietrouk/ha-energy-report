@@ -122,6 +122,8 @@ PERIOD_TIME: Final = {
 # Sent whenever settings or the next run times change, so the entities showing
 # them update.
 SIGNAL_SCHEDULE: Final = "energy_report_schedule_{}"
+# Sent when a preview has been built, for the sensor holding it.
+SIGNAL_PREVIEW: Final = "energy_report_preview_{}"
 
 SERVICE_GENERATE: Final = "generate"
 SERVICE_SEND: Final = "send"

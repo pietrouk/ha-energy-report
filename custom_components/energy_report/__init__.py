@@ -39,6 +39,9 @@ from .const import (
     CONF_PV_ENERGY,
     CONF_PV_POWER,
     CONF_RATE_SCALE,
+    CONF_STANDING_CHARGE,
+    CONF_STANDING_CHARGE_FIXED,
+    CONF_STANDING_CHARGE_SCALE,
     CONF_TELEGRAM_CHAT_IDS,
     CONF_TELEGRAM_ENTITIES,
     COMPILE_GRACE_SECONDS,
@@ -67,7 +70,7 @@ from .config_flow import delivery_method
 from .message import charge_text, peak_text, render
 from .report import choose_fallback, first_peak, summarise
 from .statistics import collect, level_history
-from .window import span_label, window_for
+from .window import days_between, span_label, window_for
 
 _LOGGER = logging.getLogger(__name__)
 PLATFORMS = [Platform.BUTTON, Platform.SELECT, Platform.SENSOR, Platform.SWITCH,
@@ -192,6 +195,7 @@ async def build(hass: HomeAssistant, entry: ConfigEntry, period: str,
     charge_peak = None
     if period == PERIOD_DAILY and has_battery and (soc_id := config.get(CONF_BATTERY_SOC)):
         charge_peak = first_peak(await level_history(hass, soc_id, start, end), start)
+    standing = _standing_charge(hass, config, start, end)
     text = render(
         totals,
         period,
@@ -202,6 +206,7 @@ async def build(hass: HomeAssistant, entry: ConfigEntry, period: str,
         has_battery=has_battery,
         peak=peak_text(period, collected.peak_watts, collected.peak_at),
         charge=charge_text(*charge_peak, dt_util.as_local(end)) if charge_peak else None,
+        standing=standing,
     )
 
     return {
@@ -230,6 +235,9 @@ async def build(hass: HomeAssistant, entry: ConfigEntry, period: str,
         "house_cost": round(totals.house_cost, 4),
         "battery_cost": round(totals.battery_cost, 4),
         "total_earnings": round(totals.total_earnings, 4),
+        "standing_charge": None if standing is None else round(standing, 4),
+        "bill_total": round(totals.house_cost + totals.battery_cost - totals.export_value
+                            + (standing or 0.0), 4),
         "arbitrage": None if arbitrage is None else round(arbitrage, 4),
         "peak_watts": collected.peak_watts,
         "peak_at": collected.peak_at.isoformat() if collected.peak_at else None,
@@ -260,6 +268,29 @@ def _fallback_rate(hass: HomeAssistant, entity_id: str | None, divisor: float,
         state.state if state is not None else None,
         divisor,
     )
+
+
+def _standing_charge(hass: HomeAssistant, config: dict, start: datetime,
+                     end: datetime) -> float | None:
+    """The standing charge for the whole period, in currency units, or None when
+    none is configured. Today's daily charge times the days covered: a month
+    in which the charge changed is charged at the new one throughout."""
+    per_day = None
+    if entity_id := config.get(CONF_STANDING_CHARGE):
+        state = hass.states.get(entity_id)
+        try:
+            per_day = float(state.state) if state is not None else None
+        except ValueError:
+            per_day = None
+        if per_day is None:
+            _LOGGER.warning("energy_report: standing charge entity %s has no number; "
+                            "using the fixed standing charge, if any", entity_id)
+    if per_day is None and (config.get(CONF_STANDING_CHARGE_FIXED) or 0) > 0:
+        per_day = float(config[CONF_STANDING_CHARGE_FIXED])
+    if per_day is None:
+        return None
+    scale = RATE_SCALES[config.get(CONF_STANDING_CHARGE_SCALE) or DEFAULT_RATE_SCALE]
+    return per_day / scale * days_between(dt_util.as_local(start), dt_util.as_local(end))
 
 
 def _arbitrage(hass: HomeAssistant, config: dict, extras: dict) -> tuple[float | None, str | None]:

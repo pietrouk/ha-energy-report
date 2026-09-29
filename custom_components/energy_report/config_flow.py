@@ -58,6 +58,9 @@ from .const import (
     CONF_PV_ENERGY,
     CONF_PV_POWER,
     CONF_RATE_SCALE,
+    CONF_STANDING_CHARGE,
+    CONF_STANDING_CHARGE_FIXED,
+    CONF_STANDING_CHARGE_SCALE,
     CONF_TELEGRAM_CHAT_IDS,
     CONF_TELEGRAM_ENTITIES,
     CONF_WEEKLY_TIME,
@@ -129,6 +132,15 @@ def _rates_schema(defaults: dict[str, Any]) -> vol.Schema:
                 NumberSelectorConfig(min=0, step="any", mode="box")
             ),
             vol.Required(CONF_CURRENCY, default=defaults.get(CONF_CURRENCY) or DEFAULT_CURRENCY): TextSelector(),
+            vol.Optional(CONF_STANDING_CHARGE, description=_suggest(defaults, CONF_STANDING_CHARGE)): ANY_SELECTOR,
+            vol.Required(CONF_STANDING_CHARGE_FIXED, default=defaults.get(CONF_STANDING_CHARGE_FIXED) or 0.0): NumberSelector(
+                NumberSelectorConfig(min=0, step="any", mode="box")
+            ),
+            vol.Required(CONF_STANDING_CHARGE_SCALE, default=defaults.get(CONF_STANDING_CHARGE_SCALE) or DEFAULT_RATE_SCALE): SelectSelector(
+                SelectSelectorConfig(
+                    options=["per_kwh", "per_kwh_minor"], translation_key="standing_scale"
+                )
+            ),
             vol.Optional(CONF_ARBITRAGE_ENERGY, description=_suggest(defaults, CONF_ARBITRAGE_ENERGY)): ANY_SELECTOR,
             vol.Optional(CONF_ARBITRAGE_GATE, description=_suggest(defaults, CONF_ARBITRAGE_GATE)): ANY_SELECTOR,
             vol.Optional(CONF_ARBITRAGE_GATE_STATE, description={"suggested_value": defaults.get(CONF_ARBITRAGE_GATE_STATE) or "off"}): TextSelector(),
@@ -271,6 +283,12 @@ def _prices_summary(hass: HomeAssistant, entry_id: str, config: dict[str, Any]) 
                          "started when the source has no average of its own)")
         else:
             parts.append(f"{label}: no rate entity, every period at the fallback {shown}")
+    if config.get(CONF_STANDING_CHARGE):
+        parts.append(f"standing charge from {config[CONF_STANDING_CHARGE]}, in the Bill only")
+    elif config.get(CONF_STANDING_CHARGE_FIXED):
+        parts.append(f"standing charge {config[CONF_STANDING_CHARGE_FIXED]:g} a day, in the Bill only")
+    else:
+        parts.append("no standing charge")
     return "; ".join(parts)
 
 

@@ -28,6 +28,9 @@ EXISTING = {
     "fallback_export_rate": 12,
     "currency": "£",
     "notify_service": "telegram_bot.send_message",
+    "standing_charge_entity": "sensor.standing",
+    "standing_charge": 42.42,
+    "standing_charge_scale": "per_kwh",
 }
 
 SCHEMAS = {

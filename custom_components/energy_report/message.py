@@ -7,7 +7,10 @@ text. Two rules hold the layout together, and the tests check both:
     house-load term, the battery's "imported for" is the imported term, and the
     solar and battery "exported for" amounts add up to the export term. The
     house's own "imported for" is shown for information and is not a term:
-    that energy would have been bought with or without solar and a battery;
+    that energy would have been bought with or without solar and a battery.
+    The Grid section's import is the house's and the battery's added together,
+    and the Bill is that import, less the export, plus any standing charge -
+    what the supplier actually charged, not what solar and the battery earned;
   * every kWh total is the sum of the parts printed beside it, and each flow
     reads the same wherever it appears - solar's "into the battery" is the
     battery's "from solar".
@@ -129,6 +132,7 @@ def render(
     has_battery: bool = True,
     peak: str | None = None,
     charge: str | None = None,
+    standing: float | None = None,
 ) -> str:
     """Build the report text. Telegram-flavoured HTML; delivery strips the tags
     and unescapes it for anything that would show them."""
@@ -154,6 +158,7 @@ def render(
     imported = _p(t.battery_cost) if has_battery and g2b > 0 else 0.0
     house_imported = _p(t.house_cost) if g2h > 0 else 0.0
     total = _p(home + exported - imported)
+    bought = _p(house_imported + imported)
 
     def money(amount: float) -> str:
         return _money(currency, amount)
@@ -247,7 +252,31 @@ def render(
         export += f": {_kwh(s2g)} from solar, {_kwh(b2g)} from the battery"
     elif shown_export > 0:
         export += ", all from solar"
-    lines += ["", "<b>⚡ Export</b>", export]
+
+    # The same flows as the House and Battery lines, so the same rule: a part
+    # printed as 0.0 kWh adds nothing here either.
+    to_battery = has_battery and g2b > 0
+    shown_import = _r(g2h + (g2b if to_battery else 0.0))
+    bought_kwh = ((t.grid_to_house if g2h > 0 else 0.0)
+                  + (t.grid_to_battery if to_battery else 0.0))
+    bought_value = ((t.house_cost if g2h > 0 else 0.0)
+                    + (t.battery_cost if to_battery else 0.0))
+    imports = f"{_kwh(shown_import)} kWh imported{at(bought_value, bought_kwh)} for {money(bought)}"
+    if to_battery:
+        imports += f": {_kwh(g2h)} to the house, {_kwh(g2b)} into the battery"
+    elif shown_import > 0:
+        imports += ", all to the house"
+    lines += ["", "<b>⚡ Grid</b>", export, imports]
+
+    # What the supplier charged. The standing charge is here and never in the
+    # earnings: it is paid with or without solar and a battery.
+    bill = [f"{money(bought)} imported", f"{money(-exported)} exported"]
+    standing_charge = 0.0
+    if standing is not None:
+        standing_charge = _p(standing)
+        bill.append(f"{money(standing_charge)} standing charge")
+    lines += ["", "<b>🧾 Bill</b>",
+              f"Bill total {money(_p(bought - exported + standing_charge))}: " + ", ".join(bill)]
 
     if arbitrage is not None:
         lines += ["", "<b>📈 Arbitrage</b>"]

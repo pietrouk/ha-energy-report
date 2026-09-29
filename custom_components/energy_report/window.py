@@ -11,7 +11,7 @@ from datetime import datetime, timedelta
 
 from .const import PERIOD_DAILY, PERIOD_MONTHLY, PERIOD_WEEKLY
 
-__all__ = ["window_for", "span_label"]
+__all__ = ["days_between", "window_for", "span_label"]
 
 
 def window_for(period: str, now: datetime) -> tuple[datetime, datetime]:
@@ -63,6 +63,17 @@ def span_label(period: str, start: datetime, end: datetime) -> str:
         last_day = end - timedelta(days=1)
         return f"{_day(start)} - {_day(last_day)}"
     return start.strftime("%B %Y")
+
+
+def days_between(start: datetime, end: datetime) -> float:
+    """Calendar days from start to end, for charging by the day: 1 for every
+    daily report, 7 for a week, the month's length for a month - 31 for a
+    March that loses an hour to the clocks, which elapsed time would make
+    30.96. Part days count by the clock, so 10:00 to 22:00 is half a day."""
+    def seconds(moment: datetime) -> int:
+        return moment.hour * 3600 + moment.minute * 60 + moment.second
+
+    return (end.date() - start.date()).days + (seconds(end) - seconds(start)) / 86400
 
 
 def _stamp(moment: datetime) -> str:

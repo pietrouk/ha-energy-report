@@ -417,3 +417,34 @@ async def test_battery_level_in_setup_and_configure(hass: HomeAssistant, world) 
     entry = await _setup(hass, delivery="none", battery_soc="sensor.batt_level")
     result = await hass.config_entries.options.async_init(entry.entry_id)
     assert "battery level sensor.batt_level" in result["description_placeholders"]["energy"]
+
+
+async def test_bill_carries_the_standing_charge_for_the_days_covered(hass: HomeAssistant, world) -> None:
+    """An entity in pounds, a fixed number in pence, or neither - never in the earnings."""
+    end = dt_util.start_of_local_day()
+    window = {"start": end - timedelta(days=7), "end": end}
+
+    async def bill(**extra) -> tuple[str, float | None]:
+        for entry in hass.config_entries.async_entries(DOMAIN):
+            await hass.config_entries.async_remove(entry.entry_id)
+        await _setup(hass, delivery="none", **extra)
+        result = await hass.services.async_call(
+            DOMAIN, "generate", {"period": "weekly", **window}, blocking=True, return_response=True)
+        line = result["message"].split("🧾 Bill</b>\n", 1)[1].split("\n", 1)[0]
+        assert "standing" not in result["message"].split("☀️", 1)[0]
+        return line, result["standing_charge"]
+
+    assert await bill() == ("Bill total £0.00: £0.00 imported, £0.00 exported", None)
+
+    hass.states.async_set("sensor.standing", "0.4242")
+    line, standing = await bill(standing_charge_entity="sensor.standing", standing_charge_scale="per_kwh")
+    assert line.endswith(", £2.97 standing charge") and standing == pytest.approx(2.9694)
+
+    line, _ = await bill(standing_charge=42.42, standing_charge_scale="per_kwh_minor")
+    assert line == "Bill total £2.97: £0.00 imported, £0.00 exported, £2.97 standing charge"
+
+    # An entity with no number falls back to the fixed charge rather than dropping it.
+    hass.states.async_set("sensor.standing", "unavailable")
+    line, _ = await bill(standing_charge_entity="sensor.standing", standing_charge=40,
+                         standing_charge_scale="per_kwh_minor")
+    assert line.endswith(", £2.80 standing charge")

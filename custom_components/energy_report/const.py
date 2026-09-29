@@ -38,6 +38,14 @@ CONF_EXPORT_RATE: Final = "export_rate"
 CONF_RATE_SCALE: Final = "rate_scale"
 CONF_FALLBACK_IMPORT_RATE: Final = "fallback_import_rate"
 CONF_FALLBACK_EXPORT_RATE: Final = "fallback_export_rate"
+# --- optional: the daily standing charge, for the Bill section only. Never part
+# of the earnings: it is paid with or without solar and a battery. An entity
+# (Predbat publishes the Octopus one), else a fixed number, each in its own
+# units - Predbat's rates are in pence but its standing charge sensor is in
+# pounds.
+CONF_STANDING_CHARGE: Final = "standing_charge_entity"
+CONF_STANDING_CHARGE_FIXED: Final = "standing_charge"
+CONF_STANDING_CHARGE_SCALE: Final = "standing_charge_scale"
 
 # --- optional extras
 CONF_ARBITRAGE_ENERGY: Final = "arbitrage_sensor"

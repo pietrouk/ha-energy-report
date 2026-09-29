@@ -28,8 +28,12 @@ Peak charge 95%, first reached at 16:15 on Fri
 Used 7.7 kWh, 95% from solar & battery, 7.3 kWh worth £1.86
 4.0 straight from solar, 3.3 from the battery, 0.4 imported at 16.8p for £0.07
 
-⚡ Export
+⚡ Grid
 4.7 kWh exported at 12.0p for £0.55: 1.8 from solar, 2.9 from the battery
+1.2 kWh imported at 16.6p for £0.21: 0.4 to the house, 0.8 into the battery
+
+🧾 Bill
+Bill total £0.08: £0.21 imported, -£0.55 exported, £0.42 standing charge
 ```
 
 That is a real day: solar filling the battery, a cheap overnight top-up from the
@@ -54,6 +58,15 @@ you actually paid the grid, net of export income:
 The house's own grid import ("imported for" on the House line) is shown but is
 not a term: that energy would have been bought with or without solar and a
 battery, so it neither adds to nor takes from what they earned.
+
+**The Bill is what your supplier charged, not what solar and the battery
+earned.** It is every import, house and battery together, less every export,
+plus the standing charge if you give one. The standing charge never goes into
+the earnings: you pay it with or without solar and a battery, so it would only
+make every day look worse by the same amount. A negative bill means you were
+paid. The meter hunting around zero (see below) is left out, as it is from
+every other line, so the Bill can differ from your supplier's by a penny or
+so a day.
 
 Negative prices, such as those on Octopus Agile, keep each term's meaning and
 flip its sign: being paid to import reads "+£0.10 imported into the battery".
@@ -200,6 +213,16 @@ recording: daily reports for the first day after installing, weekly ones for
 the first week, monthly ones for the first month. It also appears if a rate
 entity was unavailable for a while. Otherwise it doesn't appear at all.
 
+### Standing charge (optional)
+
+Only for the Bill. Point it at an entity holding the daily charge, such as
+Predbat's `sensor.predbat_octopus_…_import_standing`, or type the number. Its
+units are set separately from the prices: Predbat's rates are in pence, but its
+standing charge sensor is in pounds. Each report charges today's figure for
+the days it covers: one for daily, seven for weekly, the month's length for
+monthly. If the entity has no number when a report runs, the typed number is
+used instead. Leave both empty to leave the standing charge out.
+
 ### Messaging
 
 | Method | What you pick | Format |
@@ -274,7 +297,8 @@ The response includes `message`; the totals `solar`, `house`, `imported`,
 `solar_to_battery`, `solar_to_grid`, `battery_to_house`, `battery_to_grid`,
 `grid_to_house`, `grid_to_battery`) and the noise terms (`battery_churn`,
 `grid_hunting`); the money (`home_value`, `export_value`, `house_cost`,
-`battery_cost`, `total_earnings`, `arbitrage`); and `covered_percent`,
+`battery_cost`, `total_earnings`, `standing_charge`, `bill_total`,
+`arbitrage`); and `covered_percent`,
 `peak_watts`, `peak_at`, `battery_peak_percent`, `battery_peak_at` (daily
 only, and null when the battery was already at its peak as the period began),
 `estimated`, `buckets` and `unpriced_buckets`. That's enough to build your own

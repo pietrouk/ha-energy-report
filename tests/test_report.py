@@ -163,9 +163,21 @@ def adds_up(label, message):
         else:
             only = grab(r"Supplied " + num + " kWh, all to the house")
             d_tot = b2h = only[0] if only else 0.0
-        sign, net = re.search(r"Net ([+-]?)" + num + " kWh", t).groups()
-        check(f"{label}: net is charged minus supplied",
-              round((1 if sign == "+" else -1) * float(net), 1), round(c_tot - d_tot, 1))
+        level = re.search(r"Level [\d.]+% → [\d.]+%: (.*)", t)
+        if level:
+            # Stored, less what was drawn from earlier, plus what was lost, is
+            # what went in and did not come out.
+            parts = level.group(1)
+            stored = grab(num + " kWh stored for later", (0.0,), where=parts)[0]
+            drawn = grab(r"ran on " + num + " kWh", (0.0,), where=parts)[0]
+            lost = grab(num + "(?: kWh)? lost in the battery", (0.0,), where=parts)[0]
+            check(f"{label}: stored, drawn and lost make charged minus supplied",
+                  round(stored - drawn + lost, 1), round(c_tot - d_tot, 1))
+            check(f"{label}: nothing is lost below zero", lost >= 0, True)
+        else:
+            sign, net = re.search(r"Net ([+-]?)" + num + " kWh", t).groups()
+            check(f"{label}: net is charged minus supplied",
+                  round((1 if sign == "+" else -1) * float(net), 1), round(c_tot - d_tot, 1))
 
     house = section(t, "🏠 House")
     used, home = grab(r"Used " + num + r" kWh, \d+% from [a-z &]+, " + num + " kWh worth", where=house)
@@ -346,7 +358,7 @@ check("solar section with the peak",
 check("battery section",
       "Charged 4.6 kWh: 4.0 from solar, 0.6 imported at 26.4p for £0.16\n"
       "Supplied 2.5 kWh: 1.1 to the house, 1.4 exported at 12.0p for £0.17\n"
-      "Net +2.1 kWh, stored for later, counted when it's used" in text, True)
+      "Net +2.1 kWh, stored for later or lost in the battery" in text, True)
 check("headings are bold, emoji inside",
       all(f"<b>{html.escape(h, quote=False)}</b>" in render(t, "daily", "x", arbitrage=0.32) for h in
           ("SOLAR & BATTERY REPORT", "💷 Total earnings", "☀️ Solar", "🔋 Battery", "🏠 House", "⚡ Grid",
@@ -476,6 +488,41 @@ check("nor without a battery section",
 invariants("peak charge", full)
 adds_up("peak charge", full)
 
+print("\n== what was stored, and what was lost")
+# Charged minus supplied is not what was stored. Over September the battery
+# took 177.2 kWh and gave back 155.3, ending where it began: the 21.9 kWh
+# difference is loss, which the Net line used to call "stored for later".
+CAP = 15.7
+month = summarise([Bucket(pv=177.2, charged=177.2, import_rate=RATE),
+                   Bucket(discharged=155.3, import_rate=RATE)])
+
+
+def level_line(totals, levels, capacity=CAP):
+    msg = plain(render(totals, "monthly", "x", levels=levels, capacity=capacity))
+    adds_up(f"levels {levels}", msg)
+    return section(msg, "🔋 Battery").splitlines()[-1]
+
+
+check("a month that ends where it began stored nothing",
+      level_line(month, (3.0, 3.0)), "Level 3% → 3%: nothing stored; 21.9 kWh lost in the battery")
+check("what is still in the battery is kept apart from the loss",
+      level_line(month, (3.0, 41.0)), "Level 3% → 41%: 6.0 kWh stored for later, counted when it's used; 15.9 lost in the battery")
+check("a period that ran the battery down",
+      level_line(summarise([Bucket(pv=0.5, charged=0.5, import_rate=RATE), Bucket(discharged=9.5, import_rate=RATE)]),
+                 (80.0, 20.0)), "Level 80% → 20%: ran on 9.4 kWh stored earlier, counted now it's used; 0.4 lost in the battery")
+check("never more stored than went in and stayed",
+      level_line(summarise([Bucket(pv=2.0, charged=2.0, import_rate=RATE)]), (20.0, 40.0)),
+      "Level 20% → 40%: 2.0 kWh stored for later, counted when it's used")
+check("a level that fell further than came out is loss too",
+      level_line(summarise([Bucket(discharged=2.0, import_rate=RATE)]), (40.0, 20.0)),
+      "Level 40% → 20%: ran on 3.1 kWh stored earlier, counted now it's used; 1.1 lost in the battery")
+check("but never less drawn than came out",
+      level_line(summarise([Bucket(discharged=2.0, import_rate=RATE)]), (40.0, 30.0)),
+      "Level 40% → 30%: ran on 2.0 kWh stored earlier, counted now it's used")
+check("without the capacity it does not pretend to know",
+      section(plain(render(month, "monthly", "x", levels=(3.0, 3.0))), "🔋 Battery").splitlines()[-1],
+      "Net +21.9 kWh, stored for later or lost in the battery")
+
 print("\n== negative and zero prices")
 # Octopus Agile goes negative: importing is paid for. The term keeps its meaning
 # and flips its sign, rather than printing "--£0.10".
@@ -516,7 +563,8 @@ for trial in range(300):
                for _ in range(rng.randint(1, 288))]
     msg = render(summarise(buckets, 0.2547, 0.12), rng.choice(["daily", "weekly"]), "x",
                  charge=rng.choice([None, "100%, first reached at 14:15"]),
-                 standing=rng.choice([None, 0.4242, 2.9694]))
+                 standing=rng.choice([None, 0.4242, 2.9694]),
+                 levels=rng.choice([None, (3.0, 3.0), (20.0, 74.0), (95.0, 12.5)]), capacity=15.7)
     before = failures
     with contextlib.redirect_stdout(io.StringIO()):
         invariants(f"trial {trial}", msg)

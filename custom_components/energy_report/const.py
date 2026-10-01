@@ -28,6 +28,11 @@ CONF_PV_POWER: Final = "pv_power"
 # Read from the recorder's state history, not statistics, so the time is the
 # minute it happened rather than the five-minute bucket it fell in.
 CONF_BATTERY_SOC: Final = "battery_soc"
+# --- optional: usable battery capacity in kWh. With the battery level it splits
+# what went into the battery and did not come out into what is still stored
+# and what was lost: over a month the level ends near where it began, so
+# almost all of that difference is loss.
+CONF_BATTERY_CAPACITY: Final = "battery_capacity"
 
 # --- rates. Any entity whose state is a number: a tariff sensor, or something
 # like predbat.rates that is not in the sensor domain at all and so gets no

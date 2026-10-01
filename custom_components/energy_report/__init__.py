@@ -24,6 +24,7 @@ from .const import (
     CONF_ARBITRAGE_ENERGY,
     CONF_ARBITRAGE_GATE,
     CONF_ARBITRAGE_GATE_STATE,
+    CONF_BATTERY_CAPACITY,
     CONF_BATTERY_SOC,
     CONF_CHARGE_ENERGY,
     CONF_CURRENCY,
@@ -71,7 +72,7 @@ from .const import (
 from .config_flow import delivery_method
 from .message import charge_text, peak_text, render
 from .report import choose_fallback, first_peak, summarise
-from .statistics import collect, level_history
+from .statistics import collect, level_at, level_history
 from .window import days_between, span_label, window_for
 
 _LOGGER = logging.getLogger(__name__)
@@ -198,6 +199,14 @@ async def build(hass: HomeAssistant, entry: ConfigEntry, period: str,
     if period == PERIOD_DAILY and has_battery and (soc_id := config.get(CONF_BATTERY_SOC)):
         charge_peak = first_peak(await level_history(hass, soc_id, start, end), start)
     standing = _standing_charge(hass, config, start, end)
+    # The battery level at both ends, for what was stored as against lost.
+    capacity = config.get(CONF_BATTERY_CAPACITY)
+    levels = None
+    if has_battery and capacity and (soc_id := config.get(CONF_BATTERY_SOC)):
+        first = await level_at(hass, soc_id, start, inside_before=False)
+        last = await level_at(hass, soc_id, end, inside_before=True)
+        if first is not None and last is not None:
+            levels = (first, last)
     text = render(
         totals,
         period,
@@ -209,6 +218,8 @@ async def build(hass: HomeAssistant, entry: ConfigEntry, period: str,
         peak=peak_text(period, collected.peak_watts, collected.peak_at),
         charge=charge_text(*charge_peak, dt_util.as_local(end)) if charge_peak else None,
         standing=standing,
+        levels=levels,
+        capacity=capacity,
     )
 
     return {
@@ -231,6 +242,8 @@ async def build(hass: HomeAssistant, entry: ConfigEntry, period: str,
         "grid_to_house": round(totals.grid_to_house, 3),
         "grid_to_battery": round(totals.grid_to_battery, 3),
         "battery_churn": round(totals.battery_churn, 3),
+        "battery_level_start": levels[0] if levels else None,
+        "battery_level_end": levels[1] if levels else None,
         "grid_hunting": round(totals.grid_hunting, 3),
         "covered_percent": round(totals.covered, 1),
         "home_value": round(totals.home_value, 4),

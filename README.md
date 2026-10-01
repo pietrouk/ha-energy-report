@@ -21,8 +21,8 @@ Generated 13.5 kWh, with a power peak of 3.0 kW at 11:45
 🔋 Battery
 Charged 8.5 kWh: 7.7 from solar, 0.8 imported at 16.5p for £0.14
 Supplied 6.2 kWh: 3.3 to the house, 2.9 exported at 12.0p for £0.34
-Net +2.3 kWh, stored for later, counted when it's used
-Peak charge 95%, first reached at 16:15 on Fri
+Level 94% → 100%: 0.9 kWh stored for later, counted when it's used; 1.4 lost in the battery
+Peak charge 100%, first reached at 13:37
 
 🏠 House
 Used 7.7 kWh, 95% from solar & battery, 7.3 kWh worth £1.86
@@ -83,9 +83,29 @@ and every total is the sum of the rounded parts, so the solar and battery
 **Battery energy is valued once, when it is used or sold, never when it goes
 in.** Valuing it on the way in as well would count the same kWh twice. So a day
 that fills the battery earns less than one that empties it, and the value shows
-up in the report for the day the energy comes back out. The battery's Net line
-says which way it went: "stored for later, counted when it's used", or "ran on
-energy stored earlier, counted now it's used".
+up in the report for the day the energy comes back out. The battery's last
+line says which way it went.
+
+**What went in and didn't come out is not all stored.** Some of it is lost in
+the battery: charging, discharging, and holding it full all cost energy. Over a
+month the level ends near where it began, so nearly all of the difference is
+loss, and a 15 kWh battery can show 20 kWh more charged than supplied. With a
+battery level sensor and the battery's capacity, the line splits the two using
+the level at each end of the period:
+
+> Level 94% → 100%: 0.9 kWh stored for later, counted when it's used; 1.4 lost in the battery
+
+or, for a period that ran it down, "ran on 9.4 kWh stored earlier, counted now
+it's used". Stored, less drawn, plus lost is always charged minus supplied.
+Losses only ever take away, so if the level and capacity disagree slightly with
+the counters, the counters win. The level comes from state history while the
+recorder keeps it, and from the hourly statistics beside each end after that.
+Without the capacity the line says only "Net +2.3 kWh, stored for later or lost
+in the battery".
+
+Battery charge and discharge counters normally sit on the battery side of the
+inverter, so this is loss in the battery itself. The inverter's conversion loss
+is part of the house load, which is worked out from the counters.
 
 **A trade needs no term of its own.** Charge at 15p overnight and sell at 30p
 in the evening: the sale lands in *exported*, the purchase in *imported into the battery*,
@@ -163,6 +183,7 @@ rejects one rather than let the report silently return zeros.
 | Battery discharged | no | |
 | Solar power | no | watts, `state_class: measurement`; adds the peak to the solar line |
 | Battery level | no | %, a battery-class sensor; adds the peak charge to the daily report |
+| Battery capacity | no | usable kWh; with the battery level, splits what was stored from what was lost |
 
 There's no house-load field. House load is calculated from the counters above,
 which keeps it in step with them inside every five-minute bucket.
@@ -299,7 +320,7 @@ names it); the totals `solar`, `house`, `imported`,
 `exported`, `charged` and `discharged`; each flow (`solar_to_house`,
 `solar_to_battery`, `solar_to_grid`, `battery_to_house`, `battery_to_grid`,
 `grid_to_house`, `grid_to_battery`) and the noise terms (`battery_churn`,
-`grid_hunting`); the money (`home_value`, `export_value`, `house_cost`,
+`grid_hunting`); `battery_level_start` and `battery_level_end`; the money (`home_value`, `export_value`, `house_cost`,
 `battery_cost`, `total_earnings`, `standing_charge`, `bill_total`,
 `arbitrage`); and `covered_percent`,
 `peak_watts`, `peak_at`, `battery_peak_percent`, `battery_peak_at` (daily

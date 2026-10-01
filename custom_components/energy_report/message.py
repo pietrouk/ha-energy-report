@@ -102,13 +102,18 @@ def peak_text(period: str, watts: float | None, at: datetime | None) -> str | No
     return f"{watts / 1000:.1f} kW {when}"
 
 
+def _percent(level: float) -> str:
+    """'100%', or '87.3%' for a sensor that reports decimals."""
+    return f"{round(level + 0.0, 1):g}%"
+
+
 def charge_text(level: float | None, at: datetime | None, end: datetime) -> str | None:
     """'100%, first reached at 14:15', naming the day - 'at 23:30 on Sun' - when
     it was not the day the period ended. A level only carried over from before
     the period was not reached in it, and says so."""
     if level is None:
         return None
-    shown = f"{round(level + 0.0, 1):g}%"
+    shown = _percent(level)
     if at is None:
         return f"{shown}, already reached when the period began"
     when = f"{at:%H:%M}"
@@ -133,6 +138,8 @@ def render(
     peak: str | None = None,
     charge: str | None = None,
     standing: float | None = None,
+    levels: tuple[float, float] | None = None,
+    capacity: float | None = None,
 ) -> str:
     """Build the report text. Telegram-flavoured HTML; delivery strips the tags
     and unescapes it for anything that would show them."""
@@ -217,9 +224,29 @@ def render(
             supplied = "Supplied nothing"
         # Battery energy is valued when it is used, never when it goes in, so a
         # report that fills the battery earns less than the one that empties it.
-        # The Net line says which this is.
-        if shown_net > 0:
-            net = f"Net +{_kwh(shown_net)} kWh, stored for later, counted when it's used"
+        # The last line says which this is. Charged minus supplied is not what
+        # was stored: some of it is lost in the battery, and over a month - the
+        # level ending near where it began - nearly all of it is. With the
+        # level at both ends and the capacity, the line splits the two.
+        if levels is not None and capacity:
+            start_level, end_level = levels
+            # Losses only ever take away: the battery cannot gain more than went
+            # in and stayed in, nor fall by less than came out and was not put
+            # back. A level change saying otherwise is the gauge or the capacity
+            # being a little out, and the line takes the counters' word for it.
+            banked = min(_r((end_level - start_level) / 100.0 * capacity), shown_net)
+            lost = _r(shown_net - banked)
+            if banked > 0:
+                kept = f"{_kwh(banked)} kWh stored for later, counted when it's used"
+            elif banked < 0:
+                kept = f"ran on {_kwh(-banked)} kWh stored earlier, counted now it's used"
+            else:
+                kept = "nothing stored"
+            if lost > 0:
+                kept += f"; {_kwh(lost)}{' kWh' if banked == 0 else ''} lost in the battery"
+            net = f"Level {_percent(start_level)} → {_percent(end_level)}: {kept}"
+        elif shown_net > 0:
+            net = f"Net +{_kwh(shown_net)} kWh, stored for later or lost in the battery"
         elif shown_net < 0:
             net = f"Net -{_kwh(-shown_net)} kWh, ran on energy stored earlier, counted now it's used"
         else:

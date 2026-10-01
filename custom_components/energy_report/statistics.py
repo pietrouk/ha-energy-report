@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timedelta
 from functools import partial
 
 from homeassistant.components.recorder import get_instance
@@ -29,7 +29,7 @@ from .report import Bucket
 
 _LOGGER = logging.getLogger(__name__)
 
-__all__ = ["Collected", "collect", "level_history"]
+__all__ = ["Collected", "collect", "level_at", "level_history"]
 
 
 @dataclass
@@ -181,3 +181,46 @@ async def level_history(hass: HomeAssistant, entity_id: str, start: datetime,
     if not readings:
         _LOGGER.debug("energy_report: no readings for %s in %s - %s", entity_id, start, end)
     return readings
+
+
+def _number(value: object) -> float | None:
+    try:
+        result = float(value)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return None
+    return None if result != result else result
+
+
+async def level_at(hass: HomeAssistant, entity_id: str, moment: datetime,
+                   inside_before: bool) -> float | None:
+    """A level sensor's reading at one moment, or None if nothing says.
+
+    State history first, exact while the recorder keeps it (purge_keep_days,
+    ten days by default). After that, statistics, which last: the mean of the
+    bucket beside the moment and inside the period - the one starting at its
+    start, or the one ending at its end, as inside_before says - five-minute if
+    still kept, else hourly. Reports turn over at midnight or in the evening,
+    when a battery is mostly idle, so an hour's mean is close.
+    """
+    def read() -> float | None:
+        states = state_changes_during_period(
+            hass, moment, moment + timedelta(seconds=1), entity_id,
+            no_attributes=True, include_start_time_state=True)
+        for state in states.get(entity_id) or []:
+            # The state in force at the moment is the one timed at it exactly.
+            if abs(state.last_updated.timestamp() - moment.timestamp()) < 0.001:
+                if (level := _number(state.state)) is not None:
+                    return level
+            break
+        for period, span in (("5minute", timedelta(minutes=5)), ("hour", timedelta(hours=1))):
+            first, last = (moment - span, moment) if inside_before else (moment, moment + span)
+            rows = statistics_during_period(hass, first, last, {entity_id}, period, None,
+                                            {"mean"}).get(entity_id) or []
+            if rows and (level := _number(rows[-1 if inside_before else 0].get("mean"))) is not None:
+                return level
+        return None
+
+    level = await get_instance(hass).async_add_executor_job(read)
+    if level is None:
+        _LOGGER.debug("energy_report: no reading for %s at %s", entity_id, moment)
+    return level

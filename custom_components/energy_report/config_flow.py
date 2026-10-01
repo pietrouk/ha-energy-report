@@ -36,6 +36,7 @@ from .const import (
     CONF_ARBITRAGE_ENERGY,
     CONF_ARBITRAGE_GATE,
     CONF_ARBITRAGE_GATE_STATE,
+    CONF_BATTERY_CAPACITY,
     CONF_BATTERY_SOC,
     CONF_CHARGE_ENERGY,
     CONF_CURRENCY,
@@ -109,6 +110,9 @@ def _energy_schema(defaults: dict[str, Any]) -> vol.Schema:
             vol.Optional(CONF_DISCHARGE_ENERGY, description=_suggest(defaults, CONF_DISCHARGE_ENERGY)): ENERGY_SELECTOR,
             vol.Optional(CONF_PV_POWER, description=_suggest(defaults, CONF_PV_POWER)): POWER_SELECTOR,
             vol.Optional(CONF_BATTERY_SOC, description=_suggest(defaults, CONF_BATTERY_SOC)): LEVEL_SELECTOR,
+            vol.Optional(CONF_BATTERY_CAPACITY, description=_suggest(defaults, CONF_BATTERY_CAPACITY)): NumberSelector(
+                NumberSelectorConfig(min=0, max=1000, step="any", mode="box", unit_of_measurement="kWh")
+            ),
         }
     )
 
@@ -253,6 +257,8 @@ def summary(hass: HomeAssistant, entry_id: str, config: dict[str, Any]) -> dict[
         energy.append(f"solar power {config.get(CONF_PV_POWER)}")
     if config.get(CONF_BATTERY_SOC):
         energy.append(f"battery level {config.get(CONF_BATTERY_SOC)}")
+    if config.get(CONF_BATTERY_CAPACITY):
+        energy.append(f"battery capacity {config[CONF_BATTERY_CAPACITY]:g} kWh")
 
     return {
         "delivery": delivery,

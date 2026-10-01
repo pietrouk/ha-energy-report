@@ -480,3 +480,60 @@ async def test_preview_shows_the_report_without_sending_it(hass: HomeAssistant, 
     previews = [n for key, n in _async_get_or_create_notifications(hass).items() if "preview" in key]
     assert [n["title"] for n in previews] == ["Monthly report preview (not sent)"]
     assert hass.states.get("sensor.solar_battery_reports_report_preview").state.startswith("Monthly: ")
+
+
+async def _battery_line(hass: HomeAssistant, period: str, start, end) -> str:
+    result = await hass.services.async_call(
+        DOMAIN, "generate", {"period": period, "start": start, "end": end}, blocking=True, return_response=True)
+    return result["message"].split("🔋 Battery</b>\n", 1)[1].split("\n\n", 1)[0].splitlines()[-1]
+
+
+async def test_level_at_each_end_from_state_history(hass: HomeAssistant) -> None:
+    """Recent periods read the exact level in force at each end. No world
+    fixture: the recorder only answers "what was the state at" for moments
+    after the first state it ever wrote, so the oldest goes in first."""
+    from pytest_homeassistant_custom_component.components.recorder.common import (
+        async_wait_recording_done,
+    )
+
+    end = dt_util.start_of_local_day()
+    start = end - timedelta(days=7)
+    for moment, level in ((start - timedelta(hours=3), "62"), (start + timedelta(hours=5), "90"),
+                          (end - timedelta(hours=2), "50"), (end + timedelta(minutes=30), "70")):
+        hass.states.async_set("sensor.batt_level", level, LEVEL, timestamp=moment.timestamp())
+    await async_wait_recording_done(hass)
+
+    await _setup(hass, delivery="none", battery_soc="sensor.batt_level", battery_capacity=15.7)
+    # No energy statistics here, so nothing came out: the 1.9 kWh fall is loss.
+    assert await _battery_line(hass, "weekly", start, end) == \
+        "Level 62% → 50%: ran on 1.9 kWh stored earlier, counted now it's used; 1.9 lost in the battery"
+
+
+async def test_level_at_each_end_from_statistics_once_history_is_gone(hass: HomeAssistant) -> None:
+    """A month back is past purge_keep_days: the hourly means beside each end."""
+    from homeassistant.components.recorder.models import StatisticMeanType
+    from homeassistant.components.recorder.statistics import async_import_statistics
+    from pytest_homeassistant_custom_component.components.recorder.common import (
+        async_wait_recording_done,
+    )
+
+    hass.states.async_set("sensor.batt_level", "50", LEVEL)
+    end = dt_util.start_of_local_day() - timedelta(days=40)
+    start = end - timedelta(days=30)
+    async_import_statistics(hass, {
+        "mean_type": StatisticMeanType.ARITHMETIC, "has_sum": False, "name": None, "source": "recorder",
+        "statistic_id": "sensor.batt_level", "unit_class": None, "unit_of_measurement": "%",
+    }, [{"start": start - timedelta(hours=1), "mean": 90.0, "min": 90.0, "max": 90.0},
+        {"start": start, "mean": 41.0, "min": 40.0, "max": 42.0},
+        {"start": end - timedelta(hours=1), "mean": 3.0, "min": 3.0, "max": 3.0},
+        {"start": end, "mean": 80.0, "min": 80.0, "max": 80.0}])
+    await async_wait_recording_done(hass)
+
+    await _setup(hass, delivery="none", battery_soc="sensor.batt_level", battery_capacity=15.7)
+    assert (await _battery_line(hass, "monthly", start, end)).startswith("Level 41% → 3%: ")
+
+    # Without a capacity it says only what the counters know.
+    for entry in hass.config_entries.async_entries(DOMAIN):
+        await hass.config_entries.async_remove(entry.entry_id)
+    await _setup(hass, delivery="none", battery_soc="sensor.batt_level")
+    assert (await _battery_line(hass, "monthly", start, end)) == "Net 0.0 kWh"

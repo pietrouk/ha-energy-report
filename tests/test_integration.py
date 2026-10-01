@@ -400,11 +400,12 @@ async def test_daily_report_says_when_the_battery_first_peaked(hass: HomeAssista
     assert daily["battery_peak_percent"] == 100.0
     assert dt_util.parse_datetime(daily["battery_peak_at"]) == start.replace(hour=14, minute=15, second=7)
 
-    weekly = await hass.services.async_call(
-        DOMAIN, "generate", {"period": "weekly", "start": start, "end": end},
-        blocking=True, return_response=True)
-    assert "Peak charge" not in weekly["message"]
-    assert weekly["battery_peak_percent"] is None
+    for period in ("weekly", "monthly"):
+        longer = await hass.services.async_call(
+            DOMAIN, "generate", {"period": period, "start": start, "end": end},
+            blocking=True, return_response=True)
+        assert "Peak charge" not in longer["message"], period
+        assert longer["battery_peak_percent"] is None, period
 
 
 async def test_battery_level_in_setup_and_configure(hass: HomeAssistant, world) -> None:

@@ -29,7 +29,7 @@ from .report import Bucket
 
 _LOGGER = logging.getLogger(__name__)
 
-__all__ = ["Collected", "collect", "level_at", "level_history"]
+__all__ = ["Collected", "collect", "counter_over", "level_at", "level_history"]
 
 
 @dataclass
@@ -224,3 +224,26 @@ async def level_at(hass: HomeAssistant, entity_id: str, moment: datetime,
     if level is None:
         _LOGGER.debug("energy_report: no reading for %s at %s", entity_id, moment)
     return level
+
+
+async def counter_over(hass: HomeAssistant, entity_id: str, start: datetime,
+                       end: datetime) -> tuple[float, float, datetime | None] | None:
+    """A total sensor's value at the end of the period and its change over it.
+
+    From hourly long-term statistics, which last, so a monthly report can
+    look a month back. The third item is when its statistics began, if that
+    was inside the period: the change then only covers the time since.
+    None when there are no statistics for the period at all.
+    """
+    def read() -> list[dict]:
+        return statistics_during_period(hass, start, end, {entity_id}, "hour", None,
+                                        {"state", "change"}).get(entity_id) or []
+
+    rows = await get_instance(hass).async_add_executor_job(read)
+    if not rows or (value := _number(rows[-1].get("state"))) is None:
+        _LOGGER.debug("energy_report: no statistics for %s in %s - %s", entity_id, start, end)
+        return None
+    change = sum(_number(row.get("change")) or 0.0 for row in rows)
+    first = dt_util.as_local(dt_util.utc_from_timestamp(_bucket_key(rows[0]) or 0.0))
+    # Timestamps: a window given to the service can be naive.
+    return value, change, first if first.timestamp() > start.timestamp() else None

@@ -35,6 +35,9 @@ from .report import Totals
 
 __all__ = ["charge_text", "peak_text", "render"]
 
+# How a weekly or monthly report names its own period.
+PERIOD_NAMES = {"daily": "today", "weekly": "this week", "monthly": "this month"}
+
 HEADINGS = {
     "daily": "Last 24 hours",
     "weekly": "Last week",
@@ -140,6 +143,8 @@ def render(
     standing: float | None = None,
     levels: tuple[float, float] | None = None,
     capacity: float | None = None,
+    points: tuple[float, float, datetime | None] | None = None,
+    points_per_pound: float | None = None,
 ) -> str:
     """Build the report text. Telegram-flavoured HTML; delivery strips the tags
     and unescapes it for anything that would show them."""
@@ -304,6 +309,18 @@ def render(
         bill.append(f"{money(standing_charge)} standing charge")
     lines += ["", "<b>🧾 Bill</b>",
               f"Bill total {money(_p(bought - exported + standing_charge))}: " + ", ".join(bill)]
+
+    # Not money in the bill, so its own section: the balance at the end of
+    # the period and how it moved, from statistics that may have begun inside
+    # the period - in which case the change says since when.
+    if points is not None:
+        balance, change, since = points
+        shown = f"{round(balance):,} points"
+        if points_per_pound:
+            shown += f", worth {money(balance / points_per_pound)}"
+        moved = f"{'+' if round(change) >= 0 else '-'}{abs(round(change)):,}"
+        when = f"since {since.day} {since:%b}" if since else PERIOD_NAMES.get(period, "")
+        lines += ["", "<b>🐙 Octopoints</b>", f"{shown}, {moved} {when}"]
 
     if arbitrage is not None:
         lines += ["", "<b>📈 Arbitrage</b>"]

@@ -38,6 +38,7 @@ from .const import (
     CONF_IMPORT_RATE,
     CONF_NOTIFY_ENTITIES,
     CONF_NOTIFY_SERVICE,
+    CONF_OCTOPOINTS,
     CONF_PV_ENERGY,
     CONF_PV_POWER,
     CONF_RATE_SCALE,
@@ -63,6 +64,7 @@ from .const import (
     PERIODS,
     RATE_SCALES,
     MESSAGING_KEYS,
+    OCTOPOINTS_PER_POUND,
     SCHEDULE_KEYS,
     SERVICE_GENERATE,
     SERVICE_SEND,
@@ -72,7 +74,7 @@ from .const import (
 from .config_flow import delivery_method
 from .message import charge_text, peak_text, render
 from .report import choose_fallback, first_peak, summarise
-from .statistics import collect, level_at, level_history
+from .statistics import collect, counter_over, level_at, level_history
 from .window import days_between, span_label, window_for
 
 _LOGGER = logging.getLogger(__name__)
@@ -207,11 +209,17 @@ async def build(hass: HomeAssistant, entry: ConfigEntry, period: str,
         last = await level_at(hass, soc_id, end, inside_before=True)
         if first is not None and last is not None:
             levels = (first, last)
+    # Weekly and monthly only: points arrive days after a saving session, so a
+    # day's change says little.
+    points = None
+    if period != PERIOD_DAILY and (points_id := config.get(CONF_OCTOPOINTS)):
+        points = await counter_over(hass, points_id, start, end)
+    currency = config.get(CONF_CURRENCY, DEFAULT_CURRENCY)
     text = render(
         totals,
         period,
         span_label(period, start, end),
-        currency=config.get(CONF_CURRENCY, DEFAULT_CURRENCY),
+        currency=currency,
         arbitrage=arbitrage,
         arbitrage_note=note,
         has_battery=has_battery,
@@ -220,6 +228,9 @@ async def build(hass: HomeAssistant, entry: ConfigEntry, period: str,
         standing=standing,
         levels=levels,
         capacity=capacity,
+        points=points,
+        # Octopoints are worth pence; in any other currency the value is not shown.
+        points_per_pound=OCTOPOINTS_PER_POUND if currency == "£" else None,
     )
 
     return {
@@ -252,6 +263,8 @@ async def build(hass: HomeAssistant, entry: ConfigEntry, period: str,
         "battery_cost": round(totals.battery_cost, 4),
         "total_earnings": round(totals.total_earnings, 4),
         "standing_charge": None if standing is None else round(standing, 4),
+        "octopoints": points[0] if points else None,
+        "octopoints_change": points[1] if points else None,
         "bill_total": round(totals.house_cost + totals.battery_cost - totals.export_value
                             + (standing or 0.0), 4),
         "arbitrage": None if arbitrage is None else round(arbitrage, 4),

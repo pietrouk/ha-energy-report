@@ -51,6 +51,12 @@ CONF_FALLBACK_EXPORT_RATE: Final = "fallback_export_rate"
 CONF_STANDING_CHARGE: Final = "standing_charge_entity"
 CONF_STANDING_CHARGE_FIXED: Final = "standing_charge"
 CONF_STANDING_CHARGE_SCALE: Final = "standing_charge_scale"
+# --- optional: an Octopus Octoplus points balance, such as the Octopus Energy
+# integration's octoplus_points sensor, for weekly and monthly reports. Read
+# from long-term statistics, so it needs a state class of total.
+CONF_OCTOPOINTS: Final = "octopoints"
+# Octopus redeems 8 Octopoints for 1p.
+OCTOPOINTS_PER_POUND: Final = 800
 
 # --- optional extras
 CONF_ARBITRAGE_ENERGY: Final = "arbitrage_sensor"

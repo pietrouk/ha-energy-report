@@ -244,6 +244,26 @@ the days it covers: one for daily, seven for weekly, the month's length for
 monthly. If the entity has no number when a report runs, the typed number is
 used instead. Leave both empty to leave the standing charge out.
 
+### Octopoints (optional)
+
+For Octopus customers on Octoplus. Point it at your points balance, such as
+the `octoplus_points` sensor from the
+[Octopus Energy integration](https://github.com/BottlecapDave/HomeAssistant-OctopusEnergy),
+and weekly and monthly reports get a section under the Bill:
+
+```
+🐙 Octopoints
+1,396 points, worth £1.75, +352 this week
+```
+
+The balance is the one at the end of the period, valued at Octopus's 8 points
+to 1p, and the change includes redemptions, which show as a fall. It is read
+from long-term statistics, so the sensor needs a state class of `total`, and a
+monthly report can look a full month back. In the first week or month after
+adding the sensor, the change only covers the time since its statistics began
+and says so: "+4 since 2 Oct". Daily reports leave it out, because points land
+days after the saving session that earned them.
+
 ### Messaging
 
 | Method | What you pick | Format |
@@ -322,6 +342,7 @@ names it); the totals `solar`, `house`, `imported`,
 `grid_to_house`, `grid_to_battery`) and the noise terms (`battery_churn`,
 `grid_hunting`); `battery_level_start` and `battery_level_end`; the money (`home_value`, `export_value`, `house_cost`,
 `battery_cost`, `total_earnings`, `standing_charge`, `bill_total`,
+`octopoints`, `octopoints_change`,
 `arbitrage`); and `covered_percent`,
 `peak_watts`, `peak_at`, `battery_peak_percent`, `battery_peak_at` (daily
 only, and null when the battery was already at its peak as the period began),

@@ -110,8 +110,10 @@ def invariants(label, message):
 
     body = "\n".join(l for l in text.split("☀️")[1].splitlines()
                      if "included in the total" not in l and not l.startswith("<i>"))
+    # Octopoints are worth money but are not in the bill.
+    points_worth = find(r"points, worth " + money, section(text, "🐙 Octopoints"))
     allowed = {f"{abs(v):.2f}" for v in (home, exported, imported, solar_sold, battery_sold, house_imported,
-                                         bought, standing, total_bill)}
+                                         bought, standing, total_bill, points_worth)}
     check(f"{label}: no other money in the body",
           [a for a in re.findall(r"£(\d+\.\d\d)", body) if a not in allowed], [])
 
@@ -522,6 +524,24 @@ check("but never less drawn than came out",
 check("without the capacity it does not pretend to know",
       section(plain(render(month, "monthly", "x", levels=(3.0, 3.0))), "🔋 Battery").splitlines()[-1],
       "Net +21.9 kWh, stored for later or lost in the battery")
+
+print("\n== Octopoints, under the bill")
+pts = plain(render(t, "weekly", "x", points=(1396.0, 352.0, None), points_per_pound=800))
+check("balance, value and the week's change",
+      section(pts, "🐙 Octopoints").strip(), "1,396 points, worth £1.75, +352 this week")
+check("after the bill", pts.index("🧾") < pts.index("🐙"), True)
+check("a redemption reads as a fall",
+      section(plain(render(t, "monthly", "x", points=(600.0, -800.0, None), points_per_pound=800)),
+              "🐙 Octopoints").strip(), "600 points, worth £0.75, -800 this month")
+check("recording that began inside the period says since when",
+      section(plain(render(t, "weekly", "x", points=(1396.0, 4.0, datetime(2026, 10, 2, 14)), points_per_pound=800)),
+              "🐙 Octopoints").strip(), "1,396 points, worth £1.75, +4 since 2 Oct")
+check("no value outside pounds",
+      section(plain(render(t, "weekly", "x", currency="€", points=(1396.0, 352.0, None))),
+              "🐙 Octopoints").strip(), "1,396 points, +352 this week")
+check("no section without points", "🐙" in plain(render(t, "weekly", "x")), False)
+invariants("octopoints", pts)
+adds_up("octopoints", pts)
 
 print("\n== negative and zero prices")
 # Octopus Agile goes negative: importing is paid for. The term keeps its meaning

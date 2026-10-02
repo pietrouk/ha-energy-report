@@ -17,7 +17,7 @@
       },
       "rates": {
         "title": "Prices",
-        "description": "**Price entities** hold your live rate, and are what every report is priced from. Pick the entity your tariff comes from, for example Predbat's predbat.rates and predbat.rates_export (in pence: choose hundredths), or an Octopus rate sensor such as Predbat's sensor.predbat_octopus_…_import_rates (in pounds: choose whole units). It does not have to be in the sensor domain.\n\nEach one is recorded as Import rate (recorded) / Export rate (recorded), so every five minutes is priced at the rate in force at the time. Those sensors are copies of your price entity, not the fallback.\n\n**Fallback prices** only matter for periods from before recording started - the first reports after installing. For those periods the price entity's own average is used if it has one (Predbat's does); otherwise this number; otherwise, at 0, the average of what was recorded. Never the price showing when the report runs, which in the evening is usually the peak.\n\n**Standing charge** (optional): added to the Bill section only, never to the earnings, because it is paid with or without solar and a battery. Pick an entity holding the daily charge, such as Predbat's sensor.predbat_octopus_…_import_standing (in pounds: choose whole units), or type it. Its units are set separately from the prices.\n\n**Planner savings** (optional): a running total of savings such as Predbat's, shown at the end of the report but not added to the total.",
+        "description": "**Price entities** hold your live rate, and are what every report is priced from. Pick the entity your tariff comes from, for example Predbat's predbat.rates and predbat.rates_export (in pence: choose hundredths), or an Octopus rate sensor such as Predbat's sensor.predbat_octopus_…_import_rates (in pounds: choose whole units). It does not have to be in the sensor domain.\n\nEach one is recorded as Import rate (recorded) / Export rate (recorded), so every five minutes is priced at the rate in force at the time. Those sensors are copies of your price entity, not the fallback.\n\n**Fallback prices** only matter for periods from before recording started - the first reports after installing. For those periods the price entity's own average is used if it has one (Predbat's does); otherwise this number; otherwise, at 0, the average of what was recorded. Never the price showing when the report runs, which in the evening is usually the peak.\n\n**Standing charge** (optional): added to the Bill section only, never to the earnings, because it is paid with or without solar and a battery. Pick an entity holding the daily charge, such as Predbat's sensor.predbat_octopus_…_import_standing (in pounds: choose whole units), or type it. Its units are set separately from the prices.\n\n**Octopoints** (optional): your Octoplus points balance, such as the Octopus Energy integration's octoplus_points sensor. Weekly and monthly reports show the balance, its value at 8 points to 1p, and how it changed.\n\n**Planner savings** (optional): a running total of savings such as Predbat's, shown at the end of the report but not added to the total.",
         "data": {
           "import_rate": "Import price entity (your live rate)",
           "export_rate": "Export price entity (your live rate)",
@@ -28,6 +28,7 @@
           "standing_charge_entity": "Standing charge entity (optional, Bill only)",
           "standing_charge": "Standing charge per day (used when there is no entity; 0 leaves it out)",
           "standing_charge_scale": "Standing charge units",
+          "octopoints": "Octopoints balance (optional, weekly and monthly reports)",
           "arbitrage_sensor": "Planner savings counter (optional, shown for reference)",
           "arbitrage_gate": "Only count savings when this entity...",
           "arbitrage_gate_state": "...is in this state"
@@ -71,7 +72,8 @@
       "bad_chat_id": "Chat IDs must be whole numbers separated by commas, for example -1001234567890, 12345678.",
       "no_chat": "Pick at least one Telegram chat or type a chat ID.",
       "no_telegram": "The Telegram bot integration is not set up, so there is nothing to send through.",
-      "unknown_service": "There is no such service. Check the name under Developer tools > Actions."
+      "unknown_service": "There is no such service. Check the name under Developer tools > Actions.",
+      "points_not_a_total": "That sensor has no long-term statistics to read the change from. It needs a state class of total, as the Octopus Energy integration's Octoplus points sensor has."
     }
   },
   "options": {
@@ -102,7 +104,7 @@
       },
       "rates": {
         "title": "Prices and planner savings",
-        "description": "**Price entities** hold your live rate, and are what every report is priced from. Pick the entity your tariff comes from, for example Predbat's predbat.rates and predbat.rates_export (in pence: choose hundredths), or an Octopus rate sensor such as Predbat's sensor.predbat_octopus_…_import_rates (in pounds: choose whole units). It does not have to be in the sensor domain.\n\nEach one is recorded as Import rate (recorded) / Export rate (recorded), so every five minutes is priced at the rate in force at the time. Those sensors are copies of your price entity, not the fallback.\n\n**Fallback prices** only matter for periods from before recording started - the first reports after installing. For those periods the price entity's own average is used if it has one (Predbat's does); otherwise this number; otherwise, at 0, the average of what was recorded. Never the price showing when the report runs, which in the evening is usually the peak.\n\n**Standing charge** (optional): added to the Bill section only, never to the earnings, because it is paid with or without solar and a battery. Pick an entity holding the daily charge, such as Predbat's sensor.predbat_octopus_…_import_standing (in pounds: choose whole units), or type it. Its units are set separately from the prices.\n\n**Planner savings** (optional): a running total of savings such as Predbat's, shown at the end of the report but not added to the total.",
+        "description": "**Price entities** hold your live rate, and are what every report is priced from. Pick the entity your tariff comes from, for example Predbat's predbat.rates and predbat.rates_export (in pence: choose hundredths), or an Octopus rate sensor such as Predbat's sensor.predbat_octopus_…_import_rates (in pounds: choose whole units). It does not have to be in the sensor domain.\n\nEach one is recorded as Import rate (recorded) / Export rate (recorded), so every five minutes is priced at the rate in force at the time. Those sensors are copies of your price entity, not the fallback.\n\n**Fallback prices** only matter for periods from before recording started - the first reports after installing. For those periods the price entity's own average is used if it has one (Predbat's does); otherwise this number; otherwise, at 0, the average of what was recorded. Never the price showing when the report runs, which in the evening is usually the peak.\n\n**Standing charge** (optional): added to the Bill section only, never to the earnings, because it is paid with or without solar and a battery. Pick an entity holding the daily charge, such as Predbat's sensor.predbat_octopus_…_import_standing (in pounds: choose whole units), or type it. Its units are set separately from the prices.\n\n**Octopoints** (optional): your Octoplus points balance, such as the Octopus Energy integration's octoplus_points sensor. Weekly and monthly reports show the balance, its value at 8 points to 1p, and how it changed.\n\n**Planner savings** (optional): a running total of savings such as Predbat's, shown at the end of the report but not added to the total.",
         "data": {
           "import_rate": "Import price entity (your live rate)",
           "export_rate": "Export price entity (your live rate)",
@@ -113,6 +115,7 @@
           "standing_charge_entity": "Standing charge entity (optional, Bill only)",
           "standing_charge": "Standing charge per day (used when there is no entity; 0 leaves it out)",
           "standing_charge_scale": "Standing charge units",
+          "octopoints": "Octopoints balance (optional, weekly and monthly reports)",
           "arbitrage_sensor": "Planner savings counter (optional, shown for reference)",
           "arbitrage_gate": "Only count savings when this entity...",
           "arbitrage_gate_state": "...is in this state"
@@ -156,7 +159,8 @@
       "bad_chat_id": "Chat IDs must be whole numbers separated by commas, for example -1001234567890, 12345678.",
       "no_chat": "Pick at least one Telegram chat or type a chat ID.",
       "no_telegram": "The Telegram bot integration is not set up, so there is nothing to send through.",
-      "unknown_service": "There is no such service. Check the name under Developer tools > Actions."
+      "unknown_service": "There is no such service. Check the name under Developer tools > Actions.",
+      "points_not_a_total": "That sensor has no long-term statistics to read the change from. It needs a state class of total, as the Octopus Energy integration's Octoplus points sensor has."
     }
   },
   "selector": {

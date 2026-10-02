@@ -538,3 +538,50 @@ async def test_level_at_each_end_from_statistics_once_history_is_gone(hass: Home
         await hass.config_entries.async_remove(entry.entry_id)
     await _setup(hass, delivery="none", battery_soc="sensor.batt_level")
     assert (await _battery_line(hass, "monthly", start, end)) == "Net 0.0 kWh"
+
+
+async def test_octopoints_in_weekly_and_monthly_but_not_daily(hass: HomeAssistant, world) -> None:
+    """The balance and its change, from hourly statistics, under the Bill."""
+    from homeassistant.components.recorder.models import StatisticMeanType
+    from homeassistant.components.recorder.statistics import async_import_statistics
+    from pytest_homeassistant_custom_component.components.recorder.common import (
+        async_wait_recording_done,
+    )
+
+    hass.states.async_set("sensor.points", "1396", {"state_class": "total"})
+    end = dt_util.start_of_local_day() - timedelta(days=3)
+    start = end - timedelta(days=7)
+    rows, balance = [], 1044.0
+    for hour in range(-24, 7 * 24):
+        moment = start + timedelta(hours=hour)
+        if moment == start + timedelta(days=2):
+            balance += 352  # a saving session's reward lands
+        rows.append({"start": moment, "state": balance, "sum": balance - 1044.0})
+    async_import_statistics(hass, {
+        "mean_type": StatisticMeanType.NONE, "has_sum": True, "name": None, "source": "recorder",
+        "statistic_id": "sensor.points", "unit_class": None, "unit_of_measurement": None,
+    }, rows)
+    await async_wait_recording_done(hass)
+
+    await _setup(hass, delivery="none", octopoints="sensor.points")
+    weekly = await hass.services.async_call(
+        DOMAIN, "generate", {"period": "weekly", "start": start, "end": end}, blocking=True, return_response=True)
+    assert "<b>🐙 Octopoints</b>\n1,396 points, worth £1.75, +352 this week" in weekly["message"]
+    assert weekly["message"].index("🧾 Bill") < weekly["message"].index("🐙 Octopoints")
+    assert (weekly["octopoints"], weekly["octopoints_change"]) == (1396.0, 352.0)
+
+    daily = await hass.services.async_call(
+        DOMAIN, "generate", {"period": "daily", "start": end - timedelta(days=1), "end": end},
+        blocking=True, return_response=True)
+    assert "Octopoints" not in daily["message"] and daily["octopoints"] is None
+
+
+async def test_octopoints_sensor_needs_statistics(hass: HomeAssistant, world) -> None:
+    hass.states.async_set("sensor.points_text", "1396", {})
+    hass.states.async_set("sensor.points", "1396", {"state_class": "total"})
+    result = await hass.config_entries.flow.async_init(DOMAIN, context={"source": config_entries.SOURCE_USER})
+    result = await hass.config_entries.flow.async_configure(result["flow_id"], ENERGY)
+    result = await hass.config_entries.flow.async_configure(result["flow_id"], {**RATES, "octopoints": "sensor.points_text"})
+    assert result["errors"] == {"octopoints": "points_not_a_total"}
+    result = await hass.config_entries.flow.async_configure(result["flow_id"], {**RATES, "octopoints": "sensor.points"})
+    assert result["step_id"] == "delivery"

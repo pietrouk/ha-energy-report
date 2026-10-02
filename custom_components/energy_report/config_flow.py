@@ -56,6 +56,7 @@ from .const import (
     CONF_MONTHLY_TIME,
     CONF_NOTIFY_ENTITIES,
     CONF_NOTIFY_SERVICE,
+    CONF_OCTOPOINTS,
     CONF_PV_ENERGY,
     CONF_PV_POWER,
     CONF_RATE_SCALE,
@@ -144,6 +145,9 @@ def _rates_schema(defaults: dict[str, Any]) -> vol.Schema:
                 SelectSelectorConfig(
                     options=["per_kwh", "per_kwh_minor"], translation_key="standing_scale"
                 )
+            ),
+            vol.Optional(CONF_OCTOPOINTS, description=_suggest(defaults, CONF_OCTOPOINTS)): EntitySelector(
+                EntitySelectorConfig(domain="sensor")
             ),
             vol.Optional(CONF_ARBITRAGE_ENERGY, description=_suggest(defaults, CONF_ARBITRAGE_ENERGY)): ANY_SELECTOR,
             vol.Optional(CONF_ARBITRAGE_GATE, description=_suggest(defaults, CONF_ARBITRAGE_GATE)): ANY_SELECTOR,
@@ -295,6 +299,8 @@ def _prices_summary(hass: HomeAssistant, entry_id: str, config: dict[str, Any]) 
         parts.append(f"standing charge {config[CONF_STANDING_CHARGE_FIXED]:g} a day, in the Bill only")
     else:
         parts.append("no standing charge")
+    if config.get(CONF_OCTOPOINTS):
+        parts.append(f"Octopoints from {config[CONF_OCTOPOINTS]}, weekly and monthly")
     return "; ".join(parts)
 
 
@@ -343,6 +349,20 @@ def _check_statistics(hass: HomeAssistant, user_input: dict[str, Any]) -> dict[s
         elif state_class not in STATISTIC_STATE_CLASSES:
             errors[key] = "not_a_total"
     return errors
+
+
+def _check_points(hass: HomeAssistant, user_input: dict[str, Any]) -> dict[str, str]:
+    """The Octopoints balance is read from long-term statistics, so its sensor
+    needs a state class of total, as the Octopus Energy integration's has."""
+    entity_id = user_input.get(CONF_OCTOPOINTS)
+    if not entity_id:
+        return {}
+    state = hass.states.get(entity_id)
+    if state is None:
+        return {CONF_OCTOPOINTS: "not_found"}
+    if state.attributes.get("state_class") not in STATISTIC_STATE_CLASSES:
+        return {CONF_OCTOPOINTS: "points_not_a_total"}
+    return {}
 
 
 def _parse_chat_ids(text: str | None) -> list[int] | None:
@@ -398,10 +418,13 @@ class EnergyReportConfigFlow(ConfigFlow, domain=DOMAIN):
         )
 
     async def async_step_rates(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
+        errors: dict[str, str] = {}
         if user_input is not None:
-            self._data.update(user_input)
-            return await self.async_step_delivery()
-        return self.async_show_form(step_id="rates", data_schema=_rates_schema({}))
+            errors = _check_points(self.hass, user_input)
+            if not errors:
+                self._data.update(user_input)
+                return await self.async_step_delivery()
+        return self.async_show_form(step_id="rates", data_schema=_rates_schema(user_input or {}), errors=errors)
 
     async def async_step_delivery(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
         if user_input is not None:
@@ -474,9 +497,13 @@ class EnergyReportOptionsFlow(OptionsFlow):
 
     async def async_step_rates(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
         schema = _rates_schema(self._current)
+        errors: dict[str, str] = {}
         if user_input is not None:
-            return self._save(_complete(schema, user_input))
-        return self.async_show_form(step_id="rates", data_schema=schema)
+            errors = _check_points(self.hass, user_input)
+            if not errors:
+                return self._save(_complete(schema, user_input))
+            schema = _rates_schema(user_input)
+        return self.async_show_form(step_id="rates", data_schema=schema, errors=errors)
 
     async def async_step_delivery(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
         if user_input is not None:

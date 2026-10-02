@@ -31,6 +31,7 @@ EXISTING = {
     "standing_charge_entity": "sensor.standing",
     "standing_charge": 42.42,
     "standing_charge_scale": "per_kwh",
+    "octopoints": "sensor.octoplus_points",
 }
 
 SCHEMAS = {

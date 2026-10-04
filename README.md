@@ -211,6 +211,16 @@ every report is priced from, five minutes at a time. They are not the fallback.
 Choose whether your source reports whole units (`0.2635`) or hundredths
 (`26.35p`).
 
+**Free electricity sessions.** Octopus's free hours don't appear in its tariff
+sensors, so a report priced from one values a free hour at the normal rate.
+Pick a second import price that does know about them, such as Predbat's
+`predbat.rates`, under **Free sessions from**, and the lower of the two is
+recorded. A free hour is priced at 0. A saving session is not: Predbat adds the
+reward to its rate, which makes it the higher of the two, so the normal tariff
+is kept and the reward shows up where it is paid, in Octopoints. The second
+price's units are read from the entity itself (Predbat's are pence), so it
+doesn't have to match the tariff's.
+
 Periods from before recording started need a stand-in price. It is chosen in
 this order:
 

@@ -41,6 +41,12 @@ CONF_BATTERY_CAPACITY: Final = "battery_capacity"
 CONF_IMPORT_RATE: Final = "import_rate"
 CONF_EXPORT_RATE: Final = "export_rate"
 CONF_RATE_SCALE: Final = "rate_scale"
+# --- optional: a second import price, such as Predbat's predbat.rates, that
+# knows about Octopus free electricity sessions the tariff sensor does not. The
+# lower of the two is recorded, so a free hour is priced at 0 while a saving
+# session - which raises Predbat's rate by the reward, paid in Octopoints - is
+# priced at the normal tariff.
+CONF_IMPORT_RATE_LOWER: Final = "import_rate_lower"
 CONF_FALLBACK_IMPORT_RATE: Final = "fallback_import_rate"
 CONF_FALLBACK_EXPORT_RATE: Final = "fallback_export_rate"
 # --- optional: the daily standing charge, for the Bill section only. Never part

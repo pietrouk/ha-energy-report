@@ -53,6 +53,7 @@ from .const import (
     CONF_FALLBACK_IMPORT_RATE,
     CONF_IMPORT_ENERGY,
     CONF_IMPORT_RATE,
+    CONF_IMPORT_RATE_LOWER,
     CONF_MONTHLY_TIME,
     CONF_NOTIFY_ENTITIES,
     CONF_NOTIFY_SERVICE,
@@ -122,6 +123,7 @@ def _rates_schema(defaults: dict[str, Any]) -> vol.Schema:
     return vol.Schema(
         {
             vol.Optional(CONF_IMPORT_RATE, description=_suggest(defaults, CONF_IMPORT_RATE)): ANY_SELECTOR,
+            vol.Optional(CONF_IMPORT_RATE_LOWER, description=_suggest(defaults, CONF_IMPORT_RATE_LOWER)): ANY_SELECTOR,
             vol.Optional(CONF_EXPORT_RATE, description=_suggest(defaults, CONF_EXPORT_RATE)): ANY_SELECTOR,
             vol.Required(CONF_RATE_SCALE, default=defaults.get(CONF_RATE_SCALE) or DEFAULT_RATE_SCALE): SelectSelector(
                 SelectSelectorConfig(
@@ -293,6 +295,8 @@ def _prices_summary(hass: HomeAssistant, entry_id: str, config: dict[str, Any]) 
                          "started when the source has no average of its own)")
         else:
             parts.append(f"{label}: no rate entity, every period at the fallback {shown}")
+    if config.get(CONF_IMPORT_RATE_LOWER):
+        parts.append(f"free sessions from {config[CONF_IMPORT_RATE_LOWER]}, when lower than the import price")
     if config.get(CONF_STANDING_CHARGE):
         parts.append(f"standing charge from {config[CONF_STANDING_CHARGE]}, in the Bill only")
     elif config.get(CONF_STANDING_CHARGE_FIXED):

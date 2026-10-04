@@ -33,6 +33,7 @@ from .const import (
     CONF_FALLBACK_EXPORT_RATE,
     CONF_FALLBACK_IMPORT_RATE,
     CONF_IMPORT_RATE,
+    CONF_IMPORT_RATE_LOWER,
     CONF_RATE_SCALE,
     DEFAULT_RATE_SCALE,
     DOMAIN,
@@ -64,7 +65,8 @@ async def async_setup_entry(
     ):
         if data.get(key):
             entities.append(RateMirror(entry, data[key], name, slug, divisor,
-                                       data.get(fallback_key)))
+                                       data.get(fallback_key),
+                                       lower=data.get(CONF_IMPORT_RATE_LOWER) if key == CONF_IMPORT_RATE else None))
 
     async_add_entities(entities)
 
@@ -86,10 +88,11 @@ class RateMirror(EnergyReportEntity, RestoreSensor):
 
     def __init__(
         self, entry: ConfigEntry, source: str, name: str, slug: str, divisor: float,
-        fallback: float | None,
+        fallback: float | None, lower: str | None = None,
     ) -> None:
         super().__init__(entry, name, slug)
         self._source = source
+        self._lower = lower
         self._divisor = divisor or 1.0
         self._value: float | None = None
         self._attr_extra_state_attributes = {
@@ -99,6 +102,8 @@ class RateMirror(EnergyReportEntity, RestoreSensor):
             # when the source has no average of its own (Predbat's has one).
             "configured_fallback_rate": round(float(fallback) / self._divisor, 6) if fallback else None,
         }
+        if lower:
+            self._attr_extra_state_attributes["lower_price_from"] = lower
 
     @property
     def native_value(self) -> float | None:
@@ -120,7 +125,8 @@ class RateMirror(EnergyReportEntity, RestoreSensor):
         if self._value is not None:
             self.async_write_ha_state()
         self.async_on_remove(
-            async_track_state_change_event(self.hass, [self._source], self._changed)
+            async_track_state_change_event(
+                self.hass, [self._source, *([self._lower] if self._lower else [])], self._changed)
         )
         self.async_on_remove(
             async_track_time_interval(self.hass, self._tick, MIRROR_INTERVAL)
@@ -145,8 +151,35 @@ class RateMirror(EnergyReportEntity, RestoreSensor):
             # Hold the last good price. Blanking it would punch a hole in the
             # statistics and leave that bucket unpriced for no good reason.
             return
+        # A free session, or anything else genuinely cheaper, from the second
+        # price; never a dearer one, so a saving session's reward is left out.
+        if (lower := self._lower_price()) is not None:
+            value = min(value, lower)
         self._value = value
         self.async_write_ha_state()
+
+    def _lower_price(self) -> float | None:
+        """The second price in currency units per kWh, or None if it has no
+        number. Its own unit says whether it is in pence (Predbat's are 'p');
+        without one it is taken to be in the same units as the tariff."""
+        if not self._lower or (state := self.hass.states.get(self._lower)) is None:
+            return None
+        try:
+            value = float(state.state)
+        except (TypeError, ValueError):
+            return None
+        unit = str(state.attributes.get("unit_of_measurement") or "").strip().lower()
+        if unit.split("/")[0] in MINOR_UNIT_NAMES:
+            divisor = 100.0
+        elif unit:
+            divisor = 1.0
+        else:
+            divisor = self._divisor
+        return round(value / divisor, 6)
+
+
+# Units that mean hundredths of the currency.
+MINOR_UNIT_NAMES = {"p", "pence", "c", "cent", "cents", "¢"}
 
 
 class NextReport(SettingEntity, SensorEntity):

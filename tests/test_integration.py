@@ -585,3 +585,30 @@ async def test_octopoints_sensor_needs_statistics(hass: HomeAssistant, world) ->
     assert result["errors"] == {"octopoints": "points_not_a_total"}
     result = await hass.config_entries.flow.async_configure(result["flow_id"], {**RATES, "octopoints": "sensor.points"})
     assert result["step_id"] == "delivery"
+
+
+async def test_free_sessions_from_a_second_price(hass: HomeAssistant, world) -> None:
+    """The lower of the tariff and the second price is recorded: a free hour at
+    0, a saving session - which raises Predbat's rate - at the normal tariff."""
+    hass.states.async_set("predbat.rates", "26.00", {"unit_of_measurement": "p"})
+    await _setup(hass, delivery="none", import_rate_lower="predbat.rates")
+    recorded = "sensor.solar_battery_reports_import_rate_recorded"
+    assert hass.states.get(recorded).state == "0.2547"  # the tariff, 25.47p, is lower
+    assert hass.states.get(recorded).attributes["lower_price_from"] == "predbat.rates"
+
+    hass.states.async_set("predbat.rates", "0", {"unit_of_measurement": "p"})  # free session
+    await hass.async_block_till_done()
+    assert hass.states.get(recorded).state == "0.0"
+
+    hass.states.async_set("predbat.rates", "33.65", {"unit_of_measurement": "p"})  # saving session
+    await hass.async_block_till_done()
+    assert hass.states.get(recorded).state == "0.2547"
+
+    hass.states.async_set("predbat.rates", "unavailable", {"unit_of_measurement": "p"})
+    await hass.async_block_till_done()
+    assert hass.states.get(recorded).state == "0.2547"
+
+    # Units come from the entity: a second price in pounds is not divided again.
+    hass.states.async_set("predbat.rates", "0.1", {"unit_of_measurement": "GBP/kWh"})
+    await hass.async_block_till_done()
+    assert hass.states.get(recorded).state == "0.1"

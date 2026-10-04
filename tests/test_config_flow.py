@@ -23,6 +23,7 @@ from custom_components.energy_report import config_flow as cf  # noqa: E402
 EXISTING = {
     "import_rate": "predbat.rates",
     "export_rate": "predbat.rates_export",
+    "import_rate_lower": "predbat.rates",
     "rate_scale": "per_kwh_minor",
     "fallback_import_rate": 25.47,
     "fallback_export_rate": 12,

@@ -12,6 +12,7 @@ import re
 import sys
 import types
 from datetime import datetime
+from datetime import timezone as _tz
 from pathlib import Path
 
 # report, message and window import nothing from Home Assistant on purpose, but
@@ -28,6 +29,7 @@ render, peak_text, charge_text = _message.render, _message.peak_text, _message.c
 _report = importlib.import_module("energy_report.report")
 Bucket, summarise, split, choose_fallback = _report.Bucket, _report.summarise, _report.split, _report.choose_fallback
 first_peak = _report.first_peak
+scheduled_price = _report.scheduled_price
 _window = importlib.import_module("energy_report.window")
 span_label, window_for, days_between = _window.span_label, _window.window_for, _window.days_between
 
@@ -542,6 +544,27 @@ check("no value outside pounds",
 check("no section without points", "🐙" in plain(render(t, "weekly", "x")), False)
 invariants("octopoints", pts)
 adds_up("octopoints", pts)
+
+print("\n== prices from the source's own schedule")
+# Predbat's Octopus sensors moved to the 16:00 peak price at 16:05-16:10; their
+# schedule says 16:00. Predbat's own rates list each change instead.
+SLOTS = {"rates": [{"start": "2026-10-08T15:30:00+0100", "end": "2026-10-08T16:00:00+0100", "value_inc_vat": 0.098},
+                   {"start": "2026-10-08T16:00:00+0100", "end": "2026-10-08T16:30:00+0100", "value_inc_vat": 0.286},
+                   "not a slot"]}
+at = lambda hh, mm, ss=0: datetime(2026, 10, 8, hh - 1, mm, ss, tzinfo=_tz.utc)  # BST is UTC+1
+check("a slot's price from its first second", scheduled_price(SLOTS, at(16, 0)), 0.286)
+check("and the one before up to its last", scheduled_price(SLOTS, at(15, 59, 59)), 0.098)
+check("nothing outside the schedule", scheduled_price(SLOTS, at(17, 0)), None)
+check("a slot without an offset is not compared",
+      scheduled_price({"rates": [{"start": "2026-10-08T16:00:00", "end": "2026-10-08T16:30:00", "value_inc_vat": 1}]}, at(16, 10)), None)
+CHANGES = {"results": {"2026-10-08T00:00:00+0100": 24.25, "2026-10-08T16:00:00+0100": 33.96,
+                       "2026-10-08T19:00:00+0100": 24.25, "2026-10-09T02:00:00+0100": 14.56}}
+check("changes: the latest one before now", scheduled_price(CHANGES, at(16, 0)), 33.96)
+check("changes: between two", scheduled_price(CHANGES, at(20, 15)), 24.25)
+check("changes: not before the first", scheduled_price(CHANGES, datetime(2026, 10, 7, 12, tzinfo=_tz.utc)), None)
+check("changes: not past the last, which may only be where the list ends",
+      scheduled_price(CHANGES, datetime(2026, 10, 9, 3, tzinfo=_tz.utc)), None)
+check("no schedule", scheduled_price({"friendly_name": "x"}, at(16, 0)), None)
 
 print("\n== negative and zero prices")
 # Octopus Agile goes negative: importing is paid for. The term keeps its meaning

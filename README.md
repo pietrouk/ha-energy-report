@@ -211,6 +211,16 @@ every report is priced from, five minutes at a time. They are not the fallback.
 Choose whether your source reports whole units (`0.2635`) or hundredths
 (`26.35p`).
 
+**Prices change on time.** A price entity's state only moves when its
+integration next updates it, which can be minutes after the price does:
+Predbat's Octopus sensors reached the 16:00 peak export price at 16:05-16:10.
+Recorded as it stood, that priced the start of every evening export at the old
+rate, and an hourly report averaged it into the whole hour (25p over one week).
+When the entity carries its own schedule - a `rates` list of slots, as
+Predbat's and the Octopus Energy integration's rate sensors do, or a `results`
+list of changes, as `predbat.rates` does - the recorded price comes from that,
+on the minute each price starts. Otherwise the entity's state is used.
+
 **Free electricity sessions.** Octopus's free hours don't appear in its tariff
 sensors, so a report priced from one values a free hour at the normal rate.
 Pick a second import price that does know about them, such as Predbat's

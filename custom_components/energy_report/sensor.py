@@ -11,7 +11,7 @@ report ran.
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime
 
 from homeassistant.components.sensor import (
     RestoreSensor,
@@ -24,7 +24,8 @@ from homeassistant.const import EntityCategory
 from homeassistant.core import Event, EventStateChangedData, HomeAssistant, callback
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
-from homeassistant.helpers.event import async_track_state_change_event, async_track_time_interval
+from homeassistant.helpers.event import async_track_state_change_event, async_track_utc_time_change
+from homeassistant.util import dt as dt_util
 
 from . import options, plain
 from .const import (
@@ -42,13 +43,13 @@ from .const import (
     SIGNAL_PREVIEW,
 )
 from .entity import EnergyReportEntity, SettingEntity
+from .report import scheduled_price
 
 _LOGGER = logging.getLogger(__name__)
 
 # A single five-minute statistics bucket needs at least one recorded state in it
 # or no row is produced at all. A flat tariff can sit unchanged for months, so
 # the mirror is written on a timer as well as on change.
-MIRROR_INTERVAL = timedelta(minutes=1)
 
 
 async def async_setup_entry(
@@ -73,6 +74,10 @@ async def async_setup_entry(
 
 class RateMirror(EnergyReportEntity, RestoreSensor):
     """Copy a price into a sensor the recorder will keep statistics for.
+
+    When the source carries its own schedule (a "rates" list or a "results"
+    map, as Predbat's and Octopus's entities do), the price comes from that, on
+    the minute it changes; otherwise from the source's state.
 
     This is not the fallback. It is the rate the reports use, recorded from the
     entity picked under Prices; its attributes say which one. The fallback is
@@ -129,7 +134,9 @@ class RateMirror(EnergyReportEntity, RestoreSensor):
                 self.hass, [self._source, *([self._lower] if self._lower else [])], self._changed)
         )
         self.async_on_remove(
-            async_track_time_interval(self.hass, self._tick, MIRROR_INTERVAL)
+            # On the minute, every minute: prices change on minute boundaries
+            # (on the half hour for Octopus), and a schedule says exactly which.
+            async_track_utc_time_change(self.hass, self._tick, second=0)
         )
 
     @callback
@@ -145,8 +152,11 @@ class RateMirror(EnergyReportEntity, RestoreSensor):
         state = self.hass.states.get(self._source)
         if state is None:
             return
+        # The price the source's own schedule says is in force now, if it has
+        # one; its state only follows when its integration next updates.
+        price = scheduled_price(state.attributes, dt_util.utcnow())
         try:
-            value = round(float(state.state) / self._divisor, 6)
+            value = round(float(state.state if price is None else price) / self._divisor, 6)
         except (TypeError, ValueError):
             # Hold the last good price. Blanking it would punch a hole in the
             # statistics and leave that bucket unpriced for no good reason.
@@ -164,8 +174,9 @@ class RateMirror(EnergyReportEntity, RestoreSensor):
         without one it is taken to be in the same units as the tariff."""
         if not self._lower or (state := self.hass.states.get(self._lower)) is None:
             return None
+        price = scheduled_price(state.attributes, dt_util.utcnow())
         try:
-            value = float(state.state)
+            value = float(state.state if price is None else price)
         except (TypeError, ValueError):
             return None
         unit = str(state.attributes.get("unit_of_measurement") or "").strip().lower()

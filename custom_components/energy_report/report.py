@@ -42,7 +42,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime
 
-__all__ = ["Bucket", "Totals", "choose_fallback", "first_peak", "summarise"]
+__all__ = ["Bucket", "Totals", "choose_fallback", "first_peak", "scheduled_price", "summarise"]
 
 
 @dataclass(frozen=True)
@@ -296,3 +296,56 @@ def choose_fallback(average: object, configured: object, recorded: list[float | 
     if (value := number(live)) is not None:
         return value / divisor
     return 0.0
+
+
+def scheduled_price(attributes: dict, now: datetime) -> float | None:
+    """The price in force at `now` from a price entity's own schedule, in the
+    entity's units, or None if it carries none that covers now.
+
+    A price entity's state changes when its integration next updates it, which
+    can be minutes after the price does: Predbat's Octopus sensors moved to the
+    16:00 peak export price at 16:05-16:10, and the hourly statistics a weekly
+    report reads averaged the old price into the whole hour. The schedule says
+    exactly when each price starts. Two shapes are understood:
+
+      rates    a list of slots, {"start", "end", "value_inc_vat"} - Predbat's
+               and the Octopus Energy integration's rate sensors
+      results  {start: price} at each change - predbat.rates and
+               predbat.rates_export, with free and saving sessions applied
+
+    A time without an offset is not compared: it could be any timezone.
+    """
+    def moment(value: object) -> datetime | None:
+        try:
+            parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+        except ValueError:
+            return None
+        return parsed if parsed.tzinfo is not None else None
+
+    def number(value: object) -> float | None:
+        try:
+            result = float(value)  # type: ignore[arg-type]
+        except (TypeError, ValueError):
+            return None
+        return None if result != result else result
+
+    rates = attributes.get("rates")
+    if isinstance(rates, list):
+        for slot in rates:
+            if not isinstance(slot, dict):
+                continue
+            start = moment(slot.get("start", slot.get("valid_from")))
+            end = moment(slot.get("end", slot.get("valid_to")))
+            if start is not None and end is not None and start <= now < end:
+                for key in ("value_inc_vat", "rate", "value"):
+                    if (price := number(slot.get(key))) is not None:
+                        return price
+    results = attributes.get("results")
+    if isinstance(results, dict) and results:
+        changes = sorted((when, price) for when, price in
+                         ((moment(k), number(v)) for k, v in results.items())
+                         if when is not None and price is not None)
+        # Only a schedule that started before now and runs past it covers now.
+        if changes and changes[0][0] <= now < changes[-1][0]:
+            return [price for when, price in changes if when <= now][-1]
+    return None

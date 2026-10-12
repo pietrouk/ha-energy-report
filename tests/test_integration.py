@@ -18,6 +18,7 @@ from homeassistant.util import dt as dt_util
 from homeassistant.core import State
 from pytest_homeassistant_custom_component.common import (
     MockConfigEntry,
+    async_fire_time_changed,
     async_mock_service,
     mock_restore_cache_with_extra_data,
 )
@@ -612,3 +613,30 @@ async def test_free_sessions_from_a_second_price(hass: HomeAssistant, world) -> 
     hass.states.async_set("predbat.rates", "0.1", {"unit_of_measurement": "GBP/kWh"})
     await hass.async_block_till_done()
     assert hass.states.get(recorded).state == "0.1"
+
+
+async def test_rate_recorded_from_the_schedule_on_the_minute(hass: HomeAssistant, world, freezer) -> None:
+    """The source's state still says the old price at 16:00 - Predbat's Octopus
+    sensors update minutes late - but its schedule says 16:00, and so does the
+    recorded rate. The same for the second price's change list."""
+    freezer.move_to("2026-10-08T14:59:30+00:00")  # 15:59:30 BST
+    slots = [{"start": "2026-10-08T15:30:00+0100", "end": "2026-10-08T16:00:00+0100", "value_inc_vat": 0.2425},
+             {"start": "2026-10-08T16:00:00+0100", "end": "2026-10-08T19:00:00+0100", "value_inc_vat": 0.3396}]
+    hass.states.async_set("sensor.octopus_import", "0.2425", {"rates": slots})
+    hass.states.async_set("predbat.rates", "24.25", {"unit_of_measurement": "p", "results": {
+        "2026-10-08T00:00:00+0100": 24.25, "2026-10-08T16:00:00+0100": 0.0, "2026-10-08T17:00:00+0100": 33.96,
+        "2026-10-08T19:00:00+0100": 24.25}})
+    await _setup(hass, delivery="none", import_rate="sensor.octopus_import", rate_scale="per_kwh",
+                 import_rate_lower="predbat.rates")
+    recorded = "sensor.solar_battery_reports_import_rate_recorded"
+    assert hass.states.get(recorded).state == "0.2425"
+
+    freezer.move_to("2026-10-08T15:00:00+00:00")  # 16:00:00 BST: a free hour by Predbat's list
+    async_fire_time_changed(hass, dt_util.utcnow())
+    await hass.async_block_till_done()
+    assert hass.states.get(recorded).state == "0.0"
+
+    freezer.move_to("2026-10-08T16:00:00+00:00")  # 17:00: the peak, though the state never moved
+    async_fire_time_changed(hass, dt_util.utcnow())
+    await hass.async_block_till_done()
+    assert hass.states.get(recorded).state == "0.3396"

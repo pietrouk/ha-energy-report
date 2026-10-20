@@ -44,7 +44,7 @@
       },
       "delivery_details": {
         "title": "Messaging details",
-        "description": "Telegram: pick the chat entities your Telegram bot created, or type chat IDs separated by commas (group chats start with a minus sign), or both.\n\nNotify entity: pick one or more, for example your phone's.\n\nNotify service: the service name, for example notify.mobile_app_my_phone.",
+        "description": "Telegram: pick the chat entities your Telegram bot created, or type chat IDs separated by commas (group chats start with a minus sign), or both.\n\nNotify entity: pick one or more, for example your phone's.\n\nNotify service: the name of a notify service, for example notify.mobile_app_my_phone. Only notify services, and telegram_bot.send_message, can be used.",
         "data": {
           "telegram_entities": "Telegram chats",
           "telegram_chat_ids": "Telegram chat IDs",
@@ -74,6 +74,7 @@
       "no_chat": "Pick at least one Telegram chat or type a chat ID.",
       "no_telegram": "The Telegram bot integration is not set up, so there is nothing to send through.",
       "unknown_service": "There is no such service. Check the name under Developer tools > Actions.",
+      "not_notify_service": "Only notify services can be used, for example notify.mobile_app_my_phone, or telegram_bot.send_message.",
       "points_not_a_total": "That sensor has no long-term statistics to read the change from. It needs a state class of total, as the Octopus Energy integration's Octoplus points sensor has."
     }
   },
@@ -132,7 +133,7 @@
       },
       "delivery_details": {
         "title": "Messaging details",
-        "description": "Telegram: pick the chat entities your Telegram bot created, or type chat IDs separated by commas (group chats start with a minus sign), or both.\n\nNotify entity: pick one or more, for example your phone's.\n\nNotify service: the service name, for example notify.mobile_app_my_phone.",
+        "description": "Telegram: pick the chat entities your Telegram bot created, or type chat IDs separated by commas (group chats start with a minus sign), or both.\n\nNotify entity: pick one or more, for example your phone's.\n\nNotify service: the name of a notify service, for example notify.mobile_app_my_phone. Only notify services, and telegram_bot.send_message, can be used.",
         "data": {
           "telegram_entities": "Telegram chats",
           "telegram_chat_ids": "Telegram chat IDs",
@@ -162,6 +163,7 @@
       "no_chat": "Pick at least one Telegram chat or type a chat ID.",
       "no_telegram": "The Telegram bot integration is not set up, so there is nothing to send through.",
       "unknown_service": "There is no such service. Check the name under Developer tools > Actions.",
+      "not_notify_service": "Only notify services can be used, for example notify.mobile_app_my_phone, or telegram_bot.send_message.",
       "points_not_a_total": "That sensor has no long-term statistics to read the change from. It needs a state class of total, as the Octopus Energy integration's Octoplus points sensor has."
     }
   },

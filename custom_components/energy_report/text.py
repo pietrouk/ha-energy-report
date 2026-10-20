@@ -38,6 +38,8 @@ REASONS = {
     "no_chat": "Give at least one Telegram chat entity or chat ID.",
     "no_telegram": "The Telegram bot integration is not set up, so there is nothing to send through.",
     "unknown_service": "There is no such service. Check the name under Developer tools > Actions.",
+    "not_notify_service": "Only notify services can be used, for example notify.mobile_app_my_phone, "
+                          "or telegram_bot.send_message.",
     "not_notify": "Give notify entities, for example notify.my_phone.",
     "none": "Messaging method is set to don't send. Choose a method first.",
 }

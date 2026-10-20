@@ -290,8 +290,12 @@ days after the saving session that earned them.
 |---|---|---|
 | **Telegram** | the chat entities your Telegram bot created, and/or chat IDs (group chats start with a minus sign) | HTML, bold headings |
 | **Notify entity** | one or more `notify.*` entities, such as your phone's | plain text |
-| **Notify service** | a service by name, such as `notify.mobile_app_my_phone` | plain text |
+| **Notify service** | a `notify.*` service by name, such as `notify.mobile_app_my_phone` (or `telegram_bot.send_message`, sent as HTML) | plain text |
 | **Don't send** | nothing; call `energy_report.generate` and deliver the message yourself | |
+
+The notify service can be changed from the device page by any user, so only
+`notify.*` services and `telegram_bot.send_message` are accepted, both when it
+is saved and again each time a report is sent.
 
 ### Schedule
 

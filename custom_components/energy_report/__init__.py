@@ -71,7 +71,7 @@ from .const import (
     SIGNAL_PREVIEW,
     SIGNAL_SCHEDULE,
 )
-from .config_flow import delivery_method
+from .config_flow import delivery_method, notify_service_target
 from .message import charge_text, peak_text, render
 from .report import choose_fallback, first_peak, summarise
 from .statistics import collect, counter_over, level_at, level_history
@@ -424,9 +424,15 @@ async def deliver(hass: HomeAssistant, entry: ConfigEntry, message: str) -> None
         return
 
     if method == DELIVERY_NOTIFY_SERVICE:
-        domain, _, service = (config.get(CONF_NOTIFY_SERVICE) or "").partition(".")
-        if not service:
-            domain, service = "notify", domain
+        # Checked again here, not only when it is saved: an entry set up before
+        # 1.4.1 may hold any service name.
+        target = notify_service_target(config.get(CONF_NOTIFY_SERVICE) or "")
+        if target is None:
+            raise HomeAssistantError(
+                f"{NAME}: {config.get(CONF_NOTIFY_SERVICE)} is not a notify service, so the "
+                f"report was not sent. Choose a notify service under Configure."
+            )
+        domain, service = target
         data = {"message": plain(message)}
         if domain == "telegram_bot":
             data = {"message": message, "parse_mode": "html"}

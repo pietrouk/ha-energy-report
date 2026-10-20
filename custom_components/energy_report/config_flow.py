@@ -379,6 +379,25 @@ def _parse_chat_ids(text: str | None) -> list[int] | None:
         return None
 
 
+def notify_service_target(name: str) -> tuple[str, str] | None:
+    """(domain, service) for a notify service name, or None when the name is
+    not one. A bare name means notify.<name>.
+
+    The name is typed by whoever configures the entry, and the Messaging send
+    to entity lets any user change it, so only services that send a message
+    are accepted: anything else would let a non-admin user have an admin-only
+    service such as homeassistant.restart or a script called on every report.
+    """
+    domain, _, service = (name or "").strip().partition(".")
+    if not service:
+        domain, service = "notify", domain
+    if not service:
+        return None
+    if domain == "notify" or (domain, service) == ("telegram_bot", "send_message"):
+        return domain, service
+    return None
+
+
 def _check_delivery(hass: HomeAssistant, method: str,
                     user_input: dict[str, Any]) -> tuple[dict[str, Any], dict[str, str]]:
     """Validate the delivery details and return them in the form stored."""
@@ -394,13 +413,13 @@ def _check_delivery(hass: HomeAssistant, method: str,
             errors["base"] = "no_telegram"
         cleaned[CONF_TELEGRAM_CHAT_IDS] = chat_ids or []
     elif method == DELIVERY_NOTIFY_SERVICE:
-        target = (user_input.get(CONF_NOTIFY_SERVICE) or "").strip()
-        domain, _, service = target.partition(".")
-        if not service:
-            domain, service = "notify", target
-        if not hass.services.has_service(domain, service):
-            errors[CONF_NOTIFY_SERVICE] = "unknown_service"
-        cleaned[CONF_NOTIFY_SERVICE] = f"{domain}.{service}"
+        target = notify_service_target(user_input.get(CONF_NOTIFY_SERVICE) or "")
+        if target is None:
+            errors[CONF_NOTIFY_SERVICE] = "not_notify_service"
+        else:
+            if not hass.services.has_service(*target):
+                errors[CONF_NOTIFY_SERVICE] = "unknown_service"
+            cleaned[CONF_NOTIFY_SERVICE] = ".".join(target)
     return cleaned, errors
 
 

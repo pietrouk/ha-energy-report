@@ -268,6 +268,50 @@ async def test_unknown_notify_service_is_refused(hass: HomeAssistant, world) -> 
     assert result["errors"] == {"notify_service": "unknown_service"}
 
 
+async def test_notify_service_must_be_a_notify_service(hass: HomeAssistant, world) -> None:
+    """A service that exists but does not send messages is refused by the
+    Configure form and by the device page text entity, which any user can set."""
+    from homeassistant.exceptions import ServiceValidationError
+
+    async_mock_service(hass, "homeassistant", "restart")
+    async_mock_service(hass, "script", "turn_on")
+    entry = await _setup(hass, delivery="none")
+    for name in ("homeassistant.restart", "script.turn_on", "telegram_bot.send_photo"):
+        result = await hass.config_entries.options.async_init(entry.entry_id)
+        result = await hass.config_entries.options.async_configure(result["flow_id"], {"next_step_id": "delivery"})
+        result = await hass.config_entries.options.async_configure(result["flow_id"], {"delivery": "notify_service"})
+        result = await hass.config_entries.options.async_configure(result["flow_id"], {"notify_service": name})
+        assert result["errors"] == {"notify_service": "not_notify_service"}, name
+
+    # telegram_bot.send_message is the one allowed outside notify.
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+    result = await hass.config_entries.options.async_configure(result["flow_id"], {"next_step_id": "delivery"})
+    result = await hass.config_entries.options.async_configure(result["flow_id"], {"delivery": "notify_service"})
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], {"notify_service": "telegram_bot.send_message"})
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+    await hass.async_block_till_done()
+
+    with pytest.raises(ServiceValidationError, match="Only notify services"):
+        await hass.services.async_call("text", "set_value", {
+            "entity_id": "text.solar_battery_reports_messaging_send_to", "value": "homeassistant.restart",
+        }, blocking=True)
+    assert entry.options["notify_service"] == "telegram_bot.send_message"
+
+
+async def test_stored_non_notify_service_is_never_called(hass: HomeAssistant, world) -> None:
+    """An entry saved before 1.4.1 may hold any service name: delivery refuses
+    it rather than calling it."""
+    from homeassistant.exceptions import HomeAssistantError
+
+    restart = async_mock_service(hass, "homeassistant", "restart")
+    await _setup(hass, delivery="notify_service", notify_service="homeassistant.restart")
+    with pytest.raises(HomeAssistantError, match="is not a notify service"):
+        await hass.services.async_call("button", "press",
+                                       {"entity_id": "button.solar_battery_reports_send_weekly_report_now"}, blocking=True)
+    assert restart == []
+
+
 async def test_daily_waits_for_sunset_without_the_sun_integration(hass: HomeAssistant, world) -> None:
     """Sunset comes from the home location, not from sun.sun, so it works with
     the sun integration not loaded at all."""

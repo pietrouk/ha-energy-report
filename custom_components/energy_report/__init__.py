@@ -75,7 +75,7 @@ from .config_flow import delivery_method, notify_service_target
 from .message import charge_text, peak_text, render
 from .report import choose_fallback, first_peak, summarise
 from .statistics import collect, counter_over, level_at, level_history
-from .window import days_between, span_label, window_for
+from .window import days_between, is_rolling, span_label, window_for
 
 _LOGGER = logging.getLogger(__name__)
 PLATFORMS = [Platform.BUTTON, Platform.SELECT, Platform.SENSOR, Platform.SWITCH,
@@ -231,6 +231,7 @@ async def build(hass: HomeAssistant, entry: ConfigEntry, period: str,
         points=points,
         # Octopoints are worth pence; in any other currency the value is not shown.
         points_per_pound=OCTOPOINTS_PER_POUND if currency == "£" else None,
+        rolling=is_rolling(period, start, end),
     )
 
     return {

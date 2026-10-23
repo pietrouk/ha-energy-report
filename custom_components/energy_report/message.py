@@ -37,6 +37,9 @@ __all__ = ["charge_text", "peak_text", "render"]
 
 # How a weekly or monthly report names its own period.
 PERIOD_NAMES = {"daily": "today", "weekly": "this week", "monthly": "this month"}
+# A monthly report asked for mid-month covers the last 30 days instead
+ROLLING_HEADING = "Last 30 days"
+ROLLING_NAME = "in the last 30 days"
 
 HEADINGS = {
     "daily": "Last 24 hours",
@@ -145,9 +148,11 @@ def render(
     capacity: float | None = None,
     points: tuple[float, float, datetime | None] | None = None,
     points_per_pound: float | None = None,
+    rolling: bool = False,
 ) -> str:
     """Build the report text. Telegram-flavoured HTML; delivery strips the tags
-    and unescapes it for anything that would show them."""
+    and unescapes it for anything that would show them. `rolling` is a monthly
+    report covering the last 30 days rather than a calendar month."""
     t = totals
     s2h, s2b, s2g = _r(t.solar_to_house), _r(t.solar_to_battery), _r(t.solar_to_grid)
     b2h, b2g = _r(t.battery_to_house), _r(t.battery_to_grid)
@@ -201,7 +206,7 @@ def render(
 
     lines: list[str] = [
         f"<b>{title}</b>",
-        f"{HEADINGS.get(period, period)} ({span})",
+        f"{ROLLING_HEADING if rolling else HEADINGS.get(period, period)} ({span})",
         "",
         "<b>💷 Total earnings</b>",
         *earnings,
@@ -319,7 +324,8 @@ def render(
         if points_per_pound:
             shown += f", worth {money(balance / points_per_pound)}"
         moved = f"{'+' if round(change) >= 0 else '-'}{abs(round(change)):,}"
-        when = f"since {since.day} {since:%b}" if since else PERIOD_NAMES.get(period, "")
+        when = (f"since {since.day} {since:%b}" if since
+                else ROLLING_NAME if rolling else PERIOD_NAMES.get(period, ""))
         lines += ["", "<b>🐙 Octopoints</b>", f"{shown}, {moved} {when}"]
 
     if arbitrage is not None:

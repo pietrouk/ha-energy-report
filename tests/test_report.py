@@ -12,6 +12,7 @@ import re
 import sys
 import types
 from datetime import datetime
+from zoneinfo import ZoneInfo
 from datetime import timezone as _tz
 from pathlib import Path
 
@@ -32,6 +33,7 @@ first_peak = _report.first_peak
 scheduled_price = _report.scheduled_price
 _window = importlib.import_module("energy_report.window")
 span_label, window_for, days_between = _window.span_label, _window.window_for, _window.days_between
+is_rolling = _window.is_rolling
 
 failures = 0
 
@@ -347,6 +349,30 @@ check("part days count by the clock", days_between(datetime(2026, 9, 18, 10), da
 check("January reports the previous December",
       [d.date().isoformat() for d in window_for("monthly", datetime(2027, 1, 1, 8))], ["2026-12-01", "2027-01-01"])
 
+print("\n== monthly asked for mid-month: the last 30 days")
+mid = window_for("monthly", datetime(2026, 10, 23, 14, 37))
+check("mid-month is the 30 full days to midnight", [d.isoformat() for d in mid],
+      ["2026-09-23T00:00:00", "2026-10-23T00:00:00"])
+check("labelled by first and last day", span_label("monthly", *mid), "23 Sep - 22 Oct")
+check("thirty days long", days_between(*mid), 30.0)
+check("a run of days, not a month", is_rolling("monthly", *mid), True)
+on_first = window_for("monthly", datetime(2026, 11, 1, 7, 30))
+check("on the 1st it is the calendar month again", [d.date().isoformat() for d in on_first], ["2026-10-01", "2026-11-01"])
+check("and named as a month", span_label("monthly", *on_first), "October 2026")
+check("a calendar month is not rolling", is_rolling("monthly", *on_first), False)
+on_31st = window_for("monthly", datetime(2026, 10, 31, 9))
+check("on the 31st it starts on the 1st but is still 30 days",
+      ([d.date().isoformat() for d in on_31st], is_rolling("monthly", *on_31st), span_label("monthly", *on_31st)),
+      (["2026-10-01", "2026-10-31"], True, "1 Oct - 30 Oct"))
+check("early March reaches back across February",
+      span_label("monthly", *window_for("monthly", datetime(2027, 3, 2, 8))), "31 Jan - 1 Mar")
+london = ZoneInfo("Europe/London")
+dst = window_for("monthly", datetime(2026, 11, 10, 10, tzinfo=london))
+check("across the clock change it is still midnight to midnight",
+      [d.isoformat() for d in dst], ["2026-10-11T00:00:00+01:00", "2026-11-10T00:00:00+00:00"])
+check("and still 30 days", days_between(*dst), 30.0)
+check("weekly is never rolling", is_rolling("weekly", *window_for("weekly", monday)), False)
+
 print("\n== message")
 text = plain(render(t, "daily", "Thu 17 Sep 19:00 - Fri 18 Sep 19:00", arbitrage=0.32,
                     peak=peak_text("daily", 3812.0, datetime(2026, 9, 18, 12, 40))))
@@ -535,6 +561,13 @@ check("after the bill", pts.index("🧾") < pts.index("🐙"), True)
 check("a redemption reads as a fall",
       section(plain(render(t, "monthly", "x", points=(600.0, -800.0, None), points_per_pound=800)),
               "🐙 Octopoints").strip(), "600 points, worth £0.75, -800 this month")
+check("a 30-day monthly report says so",
+      section(plain(render(t, "monthly", "x", points=(600.0, 120.0, None), points_per_pound=800, rolling=True)),
+              "🐙 Octopoints").strip(), "600 points, worth £0.75, +120 in the last 30 days")
+check("and is headed Last 30 days",
+      plain(render(t, "monthly", "23 Sep - 22 Oct", rolling=True)).splitlines()[1], "Last 30 days (23 Sep - 22 Oct)")
+check("a calendar month keeps its heading",
+      plain(render(t, "monthly", "September 2026")).splitlines()[1], "Last month (September 2026)")
 check("recording that began inside the period says since when",
       section(plain(render(t, "weekly", "x", points=(1396.0, 4.0, datetime(2026, 10, 2, 14)), points_per_pound=800)),
               "🐙 Octopoints").strip(), "1,396 points, worth £1.75, +4 since 2 Oct")

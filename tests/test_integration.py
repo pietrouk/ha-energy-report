@@ -176,14 +176,21 @@ async def test_send_button_telegram(hass: HomeAssistant, world) -> None:
     assert [c.data["chat_id"] for c in calls if "chat_id" in c.data] == [[CHAT]]
 
 
-async def test_send_button_notify_entity_is_plain_text(hass: HomeAssistant, world) -> None:
+@pytest.mark.parametrize(("now", "heading"), [
+    # Pressed mid-month: the 30 full days to midnight
+    ("2026-10-23T13:00:00+00:00", "Last 30 days (23 Sep - 22 Oct)"),
+    # Pressed on the 1st, as the schedule runs it: the calendar month just gone
+    ("2026-11-01T10:00:00+00:00", "Last month (October 2026)"),
+])
+async def test_send_button_notify_entity_is_plain_text(hass: HomeAssistant, world, freezer, now, heading) -> None:
+    freezer.move_to(now)
     await _setup(hass, delivery="notify_entity", notify_entities=["notify.phone"])
     await hass.services.async_call("button", "press",
                                    {"entity_id": "button.solar_battery_reports_send_monthly_report_now"}, blocking=True)
     (call,) = world["notify"]
     assert call.data["entity_id"] == ["notify.phone"]
     assert "<b>" not in call.data["message"]
-    assert call.data["message"].startswith("SOLAR & BATTERY REPORT\nLast month (")
+    assert call.data["message"].startswith(f"SOLAR & BATTERY REPORT\n{heading}")
 
 
 async def test_send_button_without_delivery_says_why(hass: HomeAssistant, world) -> None:

@@ -11,7 +11,10 @@ from datetime import datetime, timedelta
 
 from .const import PERIOD_DAILY, PERIOD_MONTHLY, PERIOD_WEEKLY
 
-__all__ = ["days_between", "window_for", "span_label"]
+__all__ = ["days_between", "is_rolling", "window_for", "span_label", "ROLLING_DAYS"]
+
+# How far back a monthly report asked for on any day but the 1st looks.
+ROLLING_DAYS = 30
 
 
 def window_for(period: str, now: datetime) -> tuple[datetime, datetime]:
@@ -19,16 +22,19 @@ def window_for(period: str, now: datetime) -> tuple[datetime, datetime]:
 
     daily    the previous 24 hours, ending on the last five-minute boundary
     weekly   the Monday-to-Sunday week that just finished
-    monthly  the calendar month that just finished
+    monthly  on the 1st (which is when the schedule runs it), the calendar
+             month that just finished; on any other day - a button pressed or
+             the service called mid-month - the 30 full days up to midnight
 
     The daily window is snapped to a five-minute boundary so consecutive
     reports tile exactly. Ending it at the moment of the run asked for a bucket
     the recorder had not compiled yet, so the five minutes before each run
     belonged to neither that report nor the next.
 
-    Weekly and monthly are anchored to calendar boundaries rather than counted
-    back from now, so running one late - or twice - still reports the same
-    period rather than a window that slides with the clock.
+    Weekly and the scheduled monthly report are anchored to calendar
+    boundaries rather than counted back from now, so running one late - or
+    twice - on the same day still reports the same period. The 30 days end at
+    midnight too, so pressing the button twice in a day gives the same report.
     """
     if period == PERIOD_DAILY:
         end = now.replace(second=0, microsecond=0)
@@ -42,14 +48,16 @@ def window_for(period: str, now: datetime) -> tuple[datetime, datetime]:
         return this_monday - timedelta(days=7), this_monday
 
     if period == PERIOD_MONTHLY:
-        first_of_this = now.replace(
-            day=1, hour=0, minute=0, second=0, microsecond=0
-        )
+        midnight = now.replace(hour=0, minute=0, second=0, microsecond=0)
+        if now.day != 1:
+            # Whole local days, so across a clock change it is still 30 days
+            # from midnight to midnight rather than 30 x 24 hours.
+            return midnight - timedelta(days=ROLLING_DAYS), midnight
         # Step back a day from the 1st to land in the previous month whatever its
         # length, then take that month's 1st. Subtracting 30 days would skip
         # February and double-count March.
-        first_of_last = (first_of_this - timedelta(days=1)).replace(day=1)
-        return first_of_last, first_of_this
+        first_of_last = (midnight - timedelta(days=1)).replace(day=1)
+        return first_of_last, midnight
 
     raise ValueError(f"unknown period: {period}")
 
@@ -62,7 +70,16 @@ def span_label(period: str, start: datetime, end: datetime) -> str:
         # The window ends at midnight on the Monday after; name the Sunday.
         last_day = end - timedelta(days=1)
         return f"{_day(start)} - {_day(last_day)}"
+    if is_rolling(period, start, end):
+        # The window ends at midnight after its last day; name that day.
+        return f"{_day(start)} - {_day(end - timedelta(days=1))}"
     return start.strftime("%B %Y")
+
+
+def is_rolling(period: str, start: datetime, end: datetime) -> bool:
+    """Whether a monthly window is a run of days rather than a calendar month:
+    a calendar month runs from one 1st to the next."""
+    return period == PERIOD_MONTHLY and not (start.day == 1 and end.day == 1)
 
 
 def days_between(start: datetime, end: datetime) -> float:

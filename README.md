@@ -303,6 +303,12 @@ Daily, weekly (Mondays) and monthly (the 1st), each on or off with its own
 time. The daily report can wait for sunset when sunset falls after your chosen
 time.
 
+The scheduled monthly report covers the calendar month just gone. A monthly
+report sent or previewed with a button, or from a service, on any other day
+than the 1st covers **the last 30 full days** instead, up to midnight: on 23
+October that is 23 September to 22 October, headed "Last 30 days". On the 1st
+it is the calendar month, the same as the scheduled one.
+
 The comparison uses the sunset **time**, worked out from your home location,
 rather than the sun entity's state. `sun.sun` changes to `below_horizon` several
 minutes after the astronomical sunset. That leaves a gap where neither the clock
@@ -376,7 +382,9 @@ card or message instead.
 ### `energy_report.send`
 
 Does the same, then sends the message through the configured notify service.
-Both services accept `start` and `end` to override the window.
+Both services accept `start` and `end` to override the window. Without them a
+monthly report follows the same rule as the buttons: the calendar month on the
+1st, the last 30 days on any other day.
 
 ## Resolution
 

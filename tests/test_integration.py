@@ -174,8 +174,8 @@ async def test_send_button_telegram(hass: HomeAssistant, world) -> None:
     # Telegram's HTML mode needs & escaped; plain-text delivery unescapes it.
     assert "<b>SOLAR &amp; BATTERY REPORT</b>\nLast week (" in calls[0].data["message"]
     # Tables unless told otherwise
-    assert "<b>🧾 Bill</b>\n<pre>Imported " in calls[0].data["message"]
-    assert "<b>📌 Highlights</b>\n☀️ Solar: generated " in calls[0].data["message"]
+    assert "<b>🧾 Bill</b><pre>Imported " in calls[0].data["message"]
+    assert "<b>Highlights</b>\n☀️ Solar: generated " in calls[0].data["message"]
     assert {tuple(c.data.get("entity_id", [])) for c in calls} >= {("notify.bot_chat",)}
     assert [c.data["chat_id"] for c in calls if "chat_id" in c.data] == [[CHAT]]
 
@@ -207,7 +207,7 @@ async def test_telegram_layout_from_the_device_page(hass: HomeAssistant, world) 
     await hass.async_block_till_done()
     await hass.services.async_call("button", "press",
                                    {"entity_id": "button.solar_battery_reports_send_daily_report_now"}, blocking=True)
-    assert "<b>🧾 Bill</b>\n<pre>Imported " in world["telegram"][-1].data["message"]
+    assert "<b>🧾 Bill</b><pre>Imported " in world["telegram"][-1].data["message"]
 
     # A phone gets the sentences whatever the layout says.
     hass.config_entries.async_update_entry(
@@ -225,7 +225,7 @@ async def test_generate_returns_both_layouts(hass: HomeAssistant, world) -> None
     result = await hass.services.async_call(DOMAIN, "generate", {"period": "daily"},
                                             blocking=True, return_response=True)
     assert "<pre>" not in result["message"]
-    assert "<b>⚡ Energy (kWh)</b>\n<pre>from\\to " in result["message_tables"]
+    assert "<b>⚡ Energy (kWh)</b><pre>from\\to " in result["message_tables"]
 
 
 @pytest.mark.parametrize(("now", "heading"), [
@@ -646,8 +646,10 @@ async def test_level_at_each_end_from_statistics_once_history_is_gone(hass: Home
     assert (await _battery_line(hass, "monthly", start, end)) == "Net 0.0 kWh"
 
 
-async def test_octopoints_in_weekly_and_monthly_but_not_daily(hass: HomeAssistant, world) -> None:
-    """The balance and its change, from hourly statistics, under the Bill."""
+async def test_octopoints_weekly_monthly_and_days_they_arrive(hass: HomeAssistant, world) -> None:
+    """The balance and its change, from hourly statistics: under the Bill in the
+    sentences, weekly and monthly; a highlight in the tables, and on a day only
+    when some arrived."""
     from homeassistant.components.recorder.models import StatisticMeanType
     from homeassistant.components.recorder.statistics import async_import_statistics
     from pytest_homeassistant_custom_component.components.recorder.common import (
@@ -675,11 +677,24 @@ async def test_octopoints_in_weekly_and_monthly_but_not_daily(hass: HomeAssistan
     assert "<b>🐙 Octopoints</b>\n1,396 points, worth £1.75, +352 this week" in weekly["message"]
     assert weekly["message"].index("🧾 Bill") < weekly["message"].index("🐙 Octopoints")
     assert (weekly["octopoints"], weekly["octopoints_change"]) == (1396.0, 352.0)
+    # The tables carry them as a highlight instead of a section.
+    assert "\n🐙 Octopoints: 1,396 points, worth £1.75, +352 this week" in weekly["message_tables"]
+    assert "<b>🐙" not in weekly["message_tables"]
 
+    # A day with none earned: nowhere.
     daily = await hass.services.async_call(
         DOMAIN, "generate", {"period": "daily", "start": end - timedelta(days=1), "end": end},
         blocking=True, return_response=True)
-    assert "Octopoints" not in daily["message"] and daily["octopoints"] is None
+    assert "Octopoints" not in daily["message"] and "Octopoints" not in daily["message_tables"]
+    assert (daily["octopoints"], daily["octopoints_change"]) == (1396.0, 0.0)
+
+    # The day the reward landed: a highlight in the tables, still not in the sentences.
+    landed = start + timedelta(days=2, hours=12)
+    daily = await hass.services.async_call(
+        DOMAIN, "generate", {"period": "daily", "start": landed - timedelta(days=1), "end": landed},
+        blocking=True, return_response=True)
+    assert "Octopoints" not in daily["message"]
+    assert "\n🐙 Octopoints: 1,396 points, worth £1.75, +352 in the last 24 hours" in daily["message_tables"]
 
 
 async def test_octopoints_sensor_needs_statistics(hass: HomeAssistant, world) -> None:

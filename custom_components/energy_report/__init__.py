@@ -217,10 +217,11 @@ async def build(hass: HomeAssistant, entry: ConfigEntry, period: str,
         last = await level_at(hass, soc_id, end, inside_before=True)
         if first is not None and last is not None:
             levels = (first, last)
-    # Weekly and monthly only: points arrive days after a saving session, so a
-    # day's change says little.
+    # Points arrive days after a saving session, so a day's change says
+    # little: the sentences show them weekly and monthly only, the tables on a
+    # day when some arrived.
     points = None
-    if period != PERIOD_DAILY and (points_id := config.get(CONF_OCTOPOINTS)):
+    if points_id := config.get(CONF_OCTOPOINTS):
         points = await counter_over(hass, points_id, start, end)
     currency = config.get(CONF_CURRENCY, DEFAULT_CURRENCY)
     shared = {
@@ -232,7 +233,6 @@ async def build(hass: HomeAssistant, entry: ConfigEntry, period: str,
         "standing": standing,
         "levels": levels,
         "capacity": capacity,
-        "points": points,
         # Octopoints are worth pence; in any other currency the value is not shown.
         "points_per_pound": OCTOPOINTS_PER_POUND if currency == "£" else None,
         "rolling": is_rolling(period, start, end),
@@ -241,11 +241,12 @@ async def build(hass: HomeAssistant, entry: ConfigEntry, period: str,
     text = render(
         totals, period, span,
         charge=charge_text(*charge_peak, dt_util.as_local(end)) if charge_peak else None,
+        points=points if period != PERIOD_DAILY else None,
         **shared,
     )
     tables = render_tables(
         totals, period, span,
-        charge_peak=charge_peak, low=charge_low, end=dt_util.as_local(end),
+        charge_peak=charge_peak, low=charge_low, end=dt_util.as_local(end), points=points,
         **shared,
     )
 
@@ -408,8 +409,9 @@ def _register_services(hass: HomeAssistant) -> None:
 
 def plain(message: str) -> str:
     """The message without its Telegram HTML, for anything that would show the
-    tags or the escaped "&amp;"."""
-    return html.unescape(re.sub(r"</?[a-z]+>", "", message))
+    tags or the escaped "&amp;". A table follows its heading on the same line
+    in the HTML, so it is given a line of its own."""
+    return html.unescape(re.sub(r"</?[a-z]+>", "", re.sub(r"(?<!\n)<pre>", "\n", message)))
 
 
 def tables_wanted(config: dict) -> bool:
@@ -498,7 +500,8 @@ def markdown(message: str) -> str:
     out = []
     for i, part in enumerate(parts):
         if i % 2:
-            out.append(f"```\n{html.unescape(part)}\n```")
+            # On a line of its own, as a code fence must be.
+            out.append(f"  \n```\n{html.unescape(part)}\n```")
         else:
             text = re.sub(r"</?i>", "*", re.sub(r"</?b>", "**", part))
             out.append(html.unescape(text).replace("\n", "  \n"))

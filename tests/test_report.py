@@ -48,7 +48,7 @@ def check(label, got, want):
 
 
 def plain(message):
-    return html.unescape(re.sub(r"</?(?:b|i|pre)>", "", message))
+    return html.unescape(re.sub(r"</?(?:b|i|pre)>", "", re.sub(r"(?<!\n)<pre>", "\n", message)))
 
 
 def section(text, heading):
@@ -632,29 +632,25 @@ nov3_tables = render_tables(nov3, "daily", "Mon 2 Nov 19:00 - Tue 3 Nov 19:00", 
 check("a real day, as tables", nov3_tables, """<b>SOLAR &amp; BATTERY REPORT</b>
 Last 24 hours (Mon 2 Nov 19:00 - Tue 3 Nov 19:00)
 
-<b>💷 Total earnings</b>
-<pre>House load saved  +£2.08
+<b>💷 Total earnings</b><pre>House load saved  +£2.08
 Exported          +£3.92
 Battery charging  -£1.88
                   ──────
 Earnings           £4.12</pre>
 
-<b>🧾 Bill</b>
-<pre>Imported           £2.27
+<b>🧾 Bill</b><pre>Imported           £2.27
 Exported          -£3.92
 Standing charge    £0.42
                   ──────
 Bill              -£1.23</pre>
 
-<b>⚡ Energy (kWh)</b>
-<pre>from\\to  House  Batt  Grid Total
+<b>⚡ Energy (kWh)</b><pre>from\\to  House  Batt  Grid Total
 Solar      1.7   1.4   0.3   3.4
 Battery    4.7     –  14.0  18.7
 Grid       2.3  19.8     –  22.1
 Total      8.7  21.2  14.3</pre>
 
-<b>💱 Grid prices</b>
-<pre>Grid         kWh  p/kWh      £
+<b>💱 Grid prices</b><pre>Grid         kWh  p/kWh      £
 Import      22.1   10.3   2.27
  house       2.3   16.8   0.39
  battery    19.8    9.5   1.88
@@ -662,7 +658,7 @@ Export      14.3   27.4   3.92
  solar       0.3   19.5   0.06
  battery    14.0   27.6   3.86</pre>
 
-<b>📌 Highlights</b>
+<b>Highlights</b>
 ☀️ Solar: generated 3.4 kWh with a power peak of 2.5 kW at 10:40
 🔋 Battery 18% → 16%, lowest 2% at 21:33 Mon, full at 11:34
 🔄 1.2 cycles (18.7 kWh out of a 15 kWh battery)
@@ -683,11 +679,11 @@ check("no peak: generation alone", "\n☀️ Solar: generated 3.4 kWh\n" in plai
 check("no standing charge: none in the bill", "Standing" in plain_tables, False)
 check("a peak short of full says so",
       section(plain(render_tables(nov3, "daily", "x", charge_peak=(87.5, datetime(2026, 11, 3, 13, 5)),
-                                  end=NOV3_END)), "📌 Highlights").splitlines()[2],
+                                  end=NOV3_END)), "Highlights").splitlines()[2],
       "🔋 Battery peak 87.5% at 13:05")
 check("a low and a peak only there as the period began are left to the start level",
       section(plain(render_tables(nov3, "daily", "x", levels=(100.0, 40.0), charge_peak=(100.0, None),
-                                  low=(40.0, None), end=NOV3_END)), "📌 Highlights").splitlines()[2],
+                                  low=(40.0, None), end=NOV3_END)), "Highlights").splitlines()[2],
       "🔋 Battery 100% → 40%")
 check("a weekly peak names its day",
       "with a power peak of 3.8 kW on Thu 17 Sep\n" in plain(render_tables(nov3, "weekly", "x",
@@ -713,10 +709,23 @@ check("euros: c/kWh and €", section(plain(render_tables(nov3, "daily", "x", cu
 check("no minor unit: whole units per kWh",
       section(plain(render_tables(nov3, "daily", "x", currency="kr")), "💱 Grid prices").splitlines()[2],
       "Import      22.1  0.103   2.27")
-check("Octopoints, arbitrage and the estimate note come after the highlights",
-      [h for h in ("📌", "🐙", "📈") if h in render_tables(t, "weekly", "x", arbitrage=0.32,
-                                                          points=(1396.0, 352.0, None))],
-      ["📌", "🐙", "📈"])
+weekly_points = plain(render_tables(t, "weekly", "x", arbitrage=0.32, points=(1396.0, 352.0, None),
+                                   points_per_pound=800))
+check("Octopoints: a highlight, not a section of their own",
+      ("<b>🐙" in render_tables(t, "weekly", "x", points=(1396.0, 352.0, None)),
+       section(weekly_points, "Highlights").splitlines()[-1]),
+      (False, "🐙 Octopoints: 1,396 points, worth £1.75, +352 this week"))
+check("arbitrage comes after the highlights", weekly_points.index("Highlights") < weekly_points.index("📈"), True)
+check("a day shows the points only when some were earned",
+      ["🐙" in render_tables(t, "daily", "x", points=(1396.0, change, None)) for change in (0.0, 0.4, -50.0, 120.0)],
+      [False, False, False, True])
+check("a day's points are the last 24 hours'",
+      section(plain(render_tables(t, "daily", "x", points=(1396.0, 120.0, None), points_per_pound=800)),
+              "Highlights").splitlines()[-1],
+      "🐙 Octopoints: 1,396 points, worth £1.75, +120 in the last 24 hours")
+check("each table straight after its heading, no empty line",
+      [h for h in ("💷 Total earnings", "🧾 Bill", "⚡ Energy (kWh)", "💱 Grid prices")
+       if f"{h}</b><pre>" not in nov3_tables], [])
 
 print("\n== the lowest level")
 check("lowest, first reached", first_low([(on(28, 0, 0), 40.0), (on(28, 2, 0), 5.0), (on(28, 3, 0), 9.0),

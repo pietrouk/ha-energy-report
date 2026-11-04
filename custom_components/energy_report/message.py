@@ -42,7 +42,7 @@ from .report import Totals
 __all__ = ["charge_text", "peak_text", "render", "render_tables"]
 
 # How a weekly or monthly report names its own period.
-PERIOD_NAMES = {"daily": "today", "weekly": "this week", "monthly": "this month"}
+PERIOD_NAMES = {"daily": "in the last 24 hours", "weekly": "this week", "monthly": "this month"}
 # A monthly report asked for mid-month covers the last 30 days instead
 ROLLING_HEADING = "Last 30 days"
 ROLLING_NAME = "in the last 30 days"
@@ -256,12 +256,10 @@ def _stored(f: _Figures, levels: tuple[float, float] | None,
     return banked, _r(f.net - banked)
 
 
-def _points_lines(points, points_per_pound, money, period: str, rolling: bool) -> list[str]:
-    """The Octopoints section: the balance at the end of the period and how it
-    moved, from statistics that may have begun inside the period - in which
-    case the change says since when."""
-    if points is None:
-        return []
+def _points_text(points, points_per_pound, money, period: str, rolling: bool) -> str:
+    """'1,396 points, worth £1.75, +352 this week': the balance at the end of
+    the period and how it moved, from statistics that may have begun inside
+    the period - in which case the change says since when."""
     balance, change, since = points
     shown = f"{round(balance):,} points"
     if points_per_pound:
@@ -269,7 +267,14 @@ def _points_lines(points, points_per_pound, money, period: str, rolling: bool) -
     moved = f"{'+' if round(change) >= 0 else '-'}{abs(round(change)):,}"
     when = (f"since {since.day} {since:%b}" if since
             else ROLLING_NAME if rolling else PERIOD_NAMES.get(period, ""))
-    return ["", "<b>🐙 Octopoints</b>", f"{shown}, {moved} {when}"]
+    return f"{shown}, {moved} {when}"
+
+
+def _points_lines(points, points_per_pound, money, period: str, rolling: bool) -> list[str]:
+    """The Octopoints section of the sentences."""
+    if points is None:
+        return []
+    return ["", "<b>🐙 Octopoints</b>", _points_text(points, points_per_pound, money, period, rolling)]
 
 
 def _arbitrage_lines(arbitrage, arbitrage_note, money) -> list[str]:
@@ -515,7 +520,8 @@ def render_tables(
     rolling: bool = False,
 ) -> str:
     """The report as tables, for Telegram: earnings and the bill, where the
-    energy went, what the grid charged and paid, and a few highlights.
+    energy went, what the grid charged and paid, and a few highlights, the
+    Octopoints among them.
 
     The same figures as render(), from the same rounding, so the two never
     disagree. `charge_peak` and `low` are (level, first reached), the time
@@ -597,21 +603,19 @@ def render_tables(
                   price(t.battery_export_value, t.battery_to_grid) if f.b2g > 0 else NONE_CELL,
                   cash(f.battery_sold)]]
 
+    # Each table straight after its heading: Telegram shows a <pre> as a block
+    # of its own, so a line break before one would leave an empty line.
     lines: list[str] = [
         f"<b>{title}</b>",
         f"{ROLLING_HEADING if rolling else HEADINGS.get(period, period)} ({span})",
         "",
-        "<b>💷 Total earnings</b>",
-        f"<pre>{sum_block(earnings, earnings_total)}</pre>",
+        f"<b>💷 Total earnings</b><pre>{sum_block(earnings, earnings_total)}</pre>",
         "",
-        "<b>🧾 Bill</b>",
-        f"<pre>{sum_block(bill, bill_total)}</pre>",
+        f"<b>🧾 Bill</b><pre>{sum_block(bill, bill_total)}</pre>",
         "",
-        "<b>⚡ Energy (kWh)</b>",
-        f"<pre>{_table(flows)}</pre>",
+        f"<b>⚡ Energy (kWh)</b><pre>{_table(flows)}</pre>",
         "",
-        "<b>💱 Grid prices</b>",
-        f"<pre>{_table(grid, min_width=6)}</pre>",
+        f"<b>💱 Grid prices</b><pre>{_table(grid, min_width=6)}</pre>",
     ]
 
     highlights = [f"☀️ Solar: generated {_kwh(f.solar)} kWh"
@@ -650,9 +654,13 @@ def render_tables(
         trip = round(100 * f.supplied / (f.supplied + lost))
         highlights.append(f"🌡️ About {_kwh(lost)} kWh lost in charging and discharging "
                           f"(round trip about {trip}%)")
-    lines += ["", "<b>📌 Highlights</b>", *highlights]
+    # Octopoints over a day only when some were earned in it: they arrive days
+    # after the saving session, so most days nothing moves.
+    if points is not None and (period != "daily" or round(points[1]) > 0):
+        highlights.append("🐙 Octopoints: "
+                          + _points_text(points, points_per_pound, money, period, rolling))
+    lines += ["", "<b>Highlights</b>", *highlights]
 
-    lines += _points_lines(points, points_per_pound, money, period, rolling)
     lines += _arbitrage_lines(arbitrage, arbitrage_note, money)
     lines += _estimate_lines(t, period)
     return _escape("\n".join(lines))

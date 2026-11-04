@@ -41,7 +41,7 @@ Export       4.7   12.0   0.55
  solar       1.8   12.0   0.21
  battery     2.9   12.0   0.34
 
-📌 Highlights
+Highlights
 ☀️ Solar: generated 13.5 kWh with a power peak of 3.0 kW at 11:45
 🔋 Battery 94% → 100%, full at 13:37
 🔄 0.4 cycles (6.2 kWh out of a 15 kWh battery)
@@ -108,6 +108,8 @@ Telegram; other messaging methods get plain text.
     average it exported at, when it did both
   - 🌡️ what was lost charging and discharging, and the round trip efficiency
     (with the battery capacity)
+  - 🐙 the Octopoints balance and how it moved (weekly and monthly, and on a
+    day when some arrived)
 
 The tables are kept to 32 characters, the width a phone shows in portrait.
 Over a month a column widens to fit bigger numbers.
@@ -348,13 +350,17 @@ and weekly and monthly reports get a section under the Bill:
 1,396 points, worth £1.75, +352 this week
 ```
 
+In Telegram's tables they are a line in the highlights instead:
+"🐙 Octopoints: 1,396 points, worth £1.75, +352 this week".
+
 The balance is the one at the end of the period, valued at Octopus's 8 points
 to 1p, and the change includes redemptions, which show as a fall. It is read
 from long-term statistics, so the sensor needs a state class of `total`, and a
 monthly report can look a full month back. In the first week or month after
 adding the sensor, the change only covers the time since its statistics began
 and says so: "+4 since 2 Oct". Daily reports leave it out, because points land
-days after the saving session that earned them.
+days after the saving session that earned them, except the tables on a day when
+some arrived: "+352 in the last 24 hours".
 
 ### Messaging
 

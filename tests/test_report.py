@@ -48,7 +48,7 @@ def check(label, got, want):
 
 
 def plain(message):
-    return html.unescape(re.sub(r"</?(?:b|i|code)>", "", message))
+    return html.unescape(re.sub(r"</?(?:b|i|pre)>", "", re.sub(r"(?<!\n)<pre>", "\n", message)))
 
 
 def section(text, heading):
@@ -632,35 +632,31 @@ nov3_tables = render_tables(nov3, "daily", "Mon 2 Nov 19:00 - Tue 3 Nov 19:00", 
 check("a real day, as tables", nov3_tables, """<b>SOLAR &amp; BATTERY REPORT</b>
 Last 24 hours (Mon 2 Nov 19:00 - Tue 3 Nov 19:00)
 
-<b>💷 Total earnings</b>
-<code>House load saved  +£2.08
+<b>💷 Total earnings</b><pre>House load saved  +£2.08
 Exported          +£3.92
 Battery charging  -£1.88
                   ──────
-Earnings           £4.12</code>
+Earnings           £4.12</pre>
 
-<b>🧾 Bill</b>
-<code>Imported           £2.27
+<b>🧾 Bill</b><pre>Imported           £2.27
 Exported          -£3.92
 Standing charge    £0.42
                   ──────
-Bill              -£1.23</code>
+Bill              -£1.23</pre>
 
-<b>⚡ Energy</b>
-<code>kWh   House  Batt  Grid Total
-Solar   1.7   1.4   0.3   3.4
-Batt    4.7     –  14.0  18.7
-Grid    2.3  19.8     –  22.1
-Total   8.7  21.2  14.3</code>
+<b>⚡ Energy</b><pre>kWh    House  Batt  Grid Total
+Solar    1.7   1.4   0.3   3.4
+Batt     4.7     –  14.0  18.7
+Grid     2.3  19.8     –  22.1
+Total    8.7  21.2  14.3</pre>
 
-<b>💱 Grid prices</b>
-<code>Grid         kWh  p/kWh      £
+<b>💱 Grid prices</b><pre>Grid         kWh  p/kWh      £
 Import      22.1   10.3   2.27
  house       2.3   16.8   0.39
  battery    19.8    9.5   1.88
 Export      14.3   27.4   3.92
  solar       0.3   19.5   0.06
- battery    14.0   27.6   3.86</code>
+ battery    14.0   27.6   3.86</pre>
 
 <b>Highlights</b>
 ☀️ Solar: generated 3.4 kWh with a power peak of 2.5 kW at 10:40
@@ -669,9 +665,12 @@ Export      14.3   27.4   3.92
 🏠 74% of the house ran on solar &amp; battery
 💹 Bought at 9.5p, sold at 27.6p: an 18.1p spread
 🌡️ About 2.8 kWh lost in charging and discharging (round trip about 87%)""")
-widest = max(len(line) for block in re.findall(r"<code>(.*?)</code>", nov3_tables, re.S)
+widest = max(len(line) for block in re.findall(r"<pre>(.*?)</pre>", nov3_tables, re.S)
              for line in html.unescape(block).splitlines())
 check("every table fits a phone, 30 characters", widest <= _message.TABLE_WIDTH, True)
+check("Energy and Grid prices are the same width, so their blocks line up",
+      [max(len(line) for line in html.unescape(block).splitlines())
+       for block in re.findall(r"<pre>(.*?)</pre>", nov3_tables, re.S)[2:]], [30, 30])
 check("the sentences say the same", ("= £4.12" in render(nov3, "daily", "x", standing=0.42),
                                      "Bill total -£1.23" in render(nov3, "daily", "x", standing=0.42)),
       (True, True))
@@ -706,8 +705,8 @@ check("no battery: no battery column, row or charging line",
       ("Batt" in solo, "Battery" in solo, " battery" in solo, "🔋" in solo), (False, False, False, False))
 check("no battery: the flows",
       section(solo, "⚡ Energy").splitlines()[1:],
-      ["kWh   House  Grid Total", "Solar   2.5   1.5   4.0", "Grid    1.0     –   1.0",
-       "Total   3.5   1.5"])
+      ["kWh      House    Grid   Total", "Solar      2.5     1.5     4.0",
+       "Grid       1.0       –     1.0", "Total      3.5     1.5"])
 check("euros: c/kWh and €", section(plain(render_tables(nov3, "daily", "x", currency="€")),
                                     "💱 Grid prices").splitlines()[1], "Grid         kWh  c/kWh      €")
 check("no minor unit: whole units per kWh",
@@ -727,9 +726,9 @@ check("a day's points are the last 24 hours'",
       section(plain(render_tables(t, "daily", "x", points=(1396.0, 120.0, None), points_per_pound=800)),
               "Highlights").splitlines()[-1],
       "🐙 Octopoints: 1,396 points, worth £1.75, +120 in the last 24 hours")
-check("each table inline monospace on the line after its heading, never a <pre> block",
-      ([h for h in ("💷 Total earnings", "🧾 Bill", "⚡ Energy", "💱 Grid prices")
-        if f"{h}</b>\n<code>" not in nov3_tables], "<pre>" in nov3_tables), ([], False))
+check("each table a block straight after its heading, no empty line",
+      [h for h in ("💷 Total earnings", "🧾 Bill", "⚡ Energy", "💱 Grid prices")
+       if f"{h}</b><pre>" not in nov3_tables], [])
 
 print("\n== what the battery sold at, by time of day")
 battery_sales = _report.battery_sales

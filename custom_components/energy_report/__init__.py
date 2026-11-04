@@ -408,8 +408,9 @@ def _register_services(hass: HomeAssistant) -> None:
 
 def plain(message: str) -> str:
     """The message without its Telegram HTML, for anything that would show the
-    tags or the escaped "&amp;"."""
-    return html.unescape(re.sub(r"</?[a-z]+>", "", message))
+    tags or the escaped "&amp;". A table follows its heading on the same line
+    in the HTML, so it is given a line of its own."""
+    return html.unescape(re.sub(r"</?[a-z]+>", "", re.sub(r"(?<!\n)<pre>", "\n", message)))
 
 
 def tables_wanted(config: dict) -> bool:
@@ -494,11 +495,12 @@ def markdown(message: str) -> str:
     """The message as Markdown, for a notification in Home Assistant itself:
     bold and italic kept, every line break kept as one, and a table as a code
     block so its columns still line up."""
-    parts = re.split(r"<code>(.*?)</code>", message, flags=re.S)
+    parts = re.split(r"<pre>(.*?)</pre>", message, flags=re.S)
     out = []
     for i, part in enumerate(parts):
         if i % 2:
-            out.append(f"```\n{html.unescape(part)}\n```")
+            # On a line of its own, as a code fence must be.
+            out.append(f"  \n```\n{html.unescape(part)}\n```")
         else:
             text = re.sub(r"</?i>", "*", re.sub(r"</?b>", "**", part))
             out.append(html.unescape(text).replace("\n", "  \n"))

@@ -25,8 +25,8 @@ worked out from the unrounded kWh and money, so it is the true average rather
 than the rounded kWh divided into the rounded pounds.
 
 render() is the report as sentences, which every messaging method can show.
-render_tables() is the same figures as aligned tables for Telegram, where
-<code> is monospaced. Both take their numbers from _figures(), so a
+render_tables() is the same figures as aligned tables for Telegram, where a
+<pre> block is monospaced. Both take their numbers from _figures(), so a
 figure reads the same in either.
 """
 
@@ -105,11 +105,11 @@ def _rate_text(currency: str, rate: float) -> str:
     return f"{currency}{_rate_number(currency, rate)}/kWh"
 
 
-TAGS = r"</?(?:b|i|code)>"
+TAGS = r"</?(?:b|i|pre)>"
 
 
 def _escape(message: str) -> str:
-    """Escape &, < and > everywhere but the <b>, <i> and <code> tags, as
+    """Escape &, < and > everywhere but the <b>, <i> and <pre> tags, as
     Telegram's HTML mode requires. The title and the earnings line both carry
     an "&"."""
     return "".join(part if re.fullmatch(TAGS, part) else html.escape(part, quote=False)
@@ -476,9 +476,16 @@ def _table(rows: list[list[str]], min_width: int = 5, label_gap: int = 1) -> str
     """Columns padded to line up in monospace: the first to the left, the
     numbers to the right and at least `min_width` wide, so neighbouring
     figures never run together. `label_gap` is extra space after the labels.
-    Narrow on purpose, to fit TABLE_WIDTH."""
+
+    Narrow on purpose, to fit TABLE_WIDTH, and widened to it when narrower, so every table's block is the same width in Telegram. Only
+    a month of big numbers makes one wider."""
     widths = [max(len(row[i]) for row in rows) for i in range(len(rows[0]))]
     widths[1:] = [max(width, min_width) for width in widths[1:]]
+    # Widened a space at a time, number columns from the left, so the gaps
+    # stay even.
+    spare = TABLE_WIDTH - (widths[0] + label_gap + sum(widths[1:]) + len(widths) - 1)
+    for i in range(max(spare, 0)):
+        widths[1 + i % (len(widths) - 1)] += 1
     lines = []
     for row in rows:
         cells = [row[0].ljust(widths[0] + label_gap)] + [cell.rjust(widths[i]) for i, cell in enumerate(row) if i]
@@ -586,7 +593,7 @@ def render_tables(
         return "\n".join(rows)
 
     # Where the energy went: each row a source, each column where it went,
-    # "Batt" both ways so the widest line is 29 characters.
+    # "Batt" both ways so it fits TABLE_WIDTH.
     # The bottom row is what each one took in, the right-hand column what
     # each one gave out.
     if has_battery:
@@ -629,24 +636,21 @@ def render_tables(
                   price(t.battery_export_value, t.battery_to_grid) if f.b2g > 0 else NONE_CELL,
                   cash(f.battery_sold)]]
 
-    # Each table as inline monospace, <code>, not a <pre> block: desktop
-    # Telegram puts a "copy" bar on every block, and a block also left an
-    # empty line under its heading.
+    # Each table a <pre> block, straight after its heading: Telegram shows a
+    # block on a line of its own, so a line break before one would leave an
+    # empty line. Inline <code> would avoid the "copy" bar desktop Telegram
+    # puts on every block, but some clients do not keep its columns aligned.
     lines: list[str] = [
         f"<b>{title}</b>",
         f"{ROLLING_HEADING if rolling else HEADINGS.get(period, period)} ({span})",
         "",
-        f"<b>💷 Total earnings</b>",
-        f"<code>{sum_block(earnings, earnings_total)}</code>",
+        f"<b>💷 Total earnings</b><pre>{sum_block(earnings, earnings_total)}</pre>",
         "",
-        f"<b>🧾 Bill</b>",
-        f"<code>{sum_block(bill, bill_total)}</code>",
+        f"<b>🧾 Bill</b><pre>{sum_block(bill, bill_total)}</pre>",
         "",
-        f"<b>⚡ Energy</b>",
-        f"<code>{_table(flows, label_gap=0)}</code>",
+        f"<b>⚡ Energy</b><pre>{_table(flows, label_gap=0)}</pre>",
         "",
-        f"<b>💱 Grid prices</b>",
-        f"<code>{_table(grid, min_width=6)}</code>",
+        f"<b>💱 Grid prices</b><pre>{_table(grid, min_width=6)}</pre>",
     ]
 
     highlights = [f"☀️ Solar: generated {_kwh(f.solar)} kWh"

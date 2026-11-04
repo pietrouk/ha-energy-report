@@ -4,9 +4,8 @@ A daily, weekly and monthly summary of where your solar, battery and grid energy
 actually went, and what it was worth, delivered through any Home Assistant
 notify service.
 
-In Telegram the figures come as tables, in monospace so the columns line up
-on a phone. They are inline monospace rather than code blocks, so desktop
-Telegram doesn't put a "copy" bar on each one:
+In Telegram the figures come as tables, each one in a monospace block so the
+columns line up on a phone:
 
 ```
 SOLAR & BATTERY REPORT
@@ -27,11 +26,11 @@ Standing charge    £0.42
 Bill               £0.08
 
 ⚡ Energy
-kWh   House  Batt  Grid Total
-Solar   4.0   7.7   1.8  13.5
-Batt    3.3     –   2.9   6.2
-Grid    0.4   0.8     –   1.2
-Total   7.7   8.5   4.7
+kWh    House  Batt  Grid Total
+Solar    4.0   7.7   1.8  13.5
+Batt     3.3     –   2.9   6.2
+Grid     0.4   0.8     –   1.2
+Total    7.7   8.5   4.7
 
 💱 Grid prices
 Grid         kWh  p/kWh      £
@@ -118,7 +117,8 @@ Telegram; other messaging methods get plain text.
   - 🐙 the Octopoints balance and how it moved (weekly and monthly, and on a
     day when some arrived)
 
-The tables are kept to 30 characters, the width Telegram on a phone shows in portrait.
+The Energy and Grid prices tables are both 30 characters wide, the width Telegram
+on a phone shows in portrait, so their blocks line up.
 Over a month a column widens to fit bigger numbers.
 
 It works with any inverter that exposes lifetime kWh counters. There are no

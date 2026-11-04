@@ -217,7 +217,7 @@ async def test_telegram_layout_from_the_device_page(hass: HomeAssistant, world) 
                                    {"entity_id": "button.solar_battery_reports_send_daily_report_now"}, blocking=True)
     (call,) = world["notify"]
     assert "\n🧾 Bill\nBill total " in call.data["message"]
-    assert "from\\to" not in call.data["message"] and "<" not in call.data["message"]
+    assert "House  Batt" not in call.data["message"] and "<" not in call.data["message"]
 
 
 async def test_generate_returns_both_layouts(hass: HomeAssistant, world) -> None:
@@ -225,7 +225,7 @@ async def test_generate_returns_both_layouts(hass: HomeAssistant, world) -> None
     result = await hass.services.async_call(DOMAIN, "generate", {"period": "daily"},
                                             blocking=True, return_response=True)
     assert "<code>" not in result["message"]
-    assert "<b>⚡ Energy (kWh)</b>\n<code>from\\to " in result["message_tables"]
+    assert "<b>⚡ Energy</b>\n<code>kWh   House " in result["message_tables"]
 
 
 @pytest.mark.parametrize(("now", "heading"), [
@@ -573,7 +573,7 @@ async def test_preview_shows_the_report_without_sending_it(hass: HomeAssistant, 
     assert notification["message"].startswith("**SOLAR & BATTERY REPORT**  \nLast week (")
     # What Telegram would get: the tables, each one a code block so it lines up.
     assert "**🧾 Bill**  \n```\nImported " in notification["message"]
-    assert "\n```  \n  \n**⚡ Energy (kWh)**  \n```\nfrom\\to " in notification["message"]
+    assert "\n```  \n  \n**⚡ Energy**  \n```\nkWh   House " in notification["message"]
 
     state = hass.states.get("sensor.solar_battery_reports_report_preview")
     assert state.state.startswith("Weekly: ")

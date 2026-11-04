@@ -26,12 +26,12 @@ Standing charge    £0.42
                   ──────
 Bill               £0.08
 
-⚡ Energy (kWh)
-from\to  House  Batt  Grid Total
-Solar      4.0   7.7   1.8  13.5
-Battery    3.3     –   2.9   6.2
-Grid       0.4   0.8     –   1.2
-Total      7.7   8.5   4.7
+⚡ Energy
+kWh   House  Batt  Grid Total
+Solar   4.0   7.7   1.8  13.5
+Batt    3.3     –   2.9   6.2
+Grid    0.4   0.8     –   1.2
+Total   7.7   8.5   4.7
 
 💱 Grid prices
 Grid         kWh  p/kWh      £
@@ -118,7 +118,7 @@ Telegram; other messaging methods get plain text.
   - 🐙 the Octopoints balance and how it moved (weekly and monthly, and on a
     day when some arrived)
 
-The tables are kept to 32 characters, the width a phone shows in portrait.
+The tables are kept to 30 characters, the width Telegram on a phone shows in portrait.
 Over a month a column widens to fit bigger numbers.
 
 It works with any inverter that exposes lifetime kWh counters. There are no

@@ -646,12 +646,12 @@ Standing charge    £0.42
                   ──────
 Bill              -£1.23</code>
 
-<b>⚡ Energy (kWh)</b>
-<code>from\\to  House  Batt  Grid Total
-Solar      1.7   1.4   0.3   3.4
-Battery    4.7     –  14.0  18.7
-Grid       2.3  19.8     –  22.1
-Total      8.7  21.2  14.3</code>
+<b>⚡ Energy</b>
+<code>kWh   House  Batt  Grid Total
+Solar   1.7   1.4   0.3   3.4
+Batt    4.7     –  14.0  18.7
+Grid    2.3  19.8     –  22.1
+Total   8.7  21.2  14.3</code>
 
 <b>💱 Grid prices</b>
 <code>Grid         kWh  p/kWh      £
@@ -671,7 +671,7 @@ Export      14.3   27.4   3.92
 🌡️ About 2.8 kWh lost in charging and discharging (round trip about 87%)""")
 widest = max(len(line) for block in re.findall(r"<code>(.*?)</code>", nov3_tables, re.S)
              for line in html.unescape(block).splitlines())
-check("every table fits a phone, 32 characters", widest <= 32, True)
+check("every table fits a phone, 30 characters", widest <= _message.TABLE_WIDTH, True)
 check("the sentences say the same", ("= £4.12" in render(nov3, "daily", "x", standing=0.42),
                                      "Bill total -£1.23" in render(nov3, "daily", "x", standing=0.42)),
       (True, True))
@@ -705,9 +705,9 @@ check("no battery: SOLAR REPORT", solo.splitlines()[0], "SOLAR REPORT")
 check("no battery: no battery column, row or charging line",
       ("Batt" in solo, "Battery" in solo, " battery" in solo, "🔋" in solo), (False, False, False, False))
 check("no battery: the flows",
-      section(solo, "⚡ Energy (kWh)").splitlines()[1:],
-      ["from\\to  House  Grid Total", "Solar      2.5   1.5   4.0", "Grid       1.0     –   1.0",
-       "Total      3.5   1.5"])
+      section(solo, "⚡ Energy").splitlines()[1:],
+      ["kWh   House  Grid Total", "Solar   2.5   1.5   4.0", "Grid    1.0     –   1.0",
+       "Total   3.5   1.5"])
 check("euros: c/kWh and €", section(plain(render_tables(nov3, "daily", "x", currency="€")),
                                     "💱 Grid prices").splitlines()[1], "Grid         kWh  c/kWh      €")
 check("no minor unit: whole units per kWh",
@@ -728,7 +728,7 @@ check("a day's points are the last 24 hours'",
               "Highlights").splitlines()[-1],
       "🐙 Octopoints: 1,396 points, worth £1.75, +120 in the last 24 hours")
 check("each table inline monospace on the line after its heading, never a <pre> block",
-      ([h for h in ("💷 Total earnings", "🧾 Bill", "⚡ Energy (kWh)", "💱 Grid prices")
+      ([h for h in ("💷 Total earnings", "🧾 Bill", "⚡ Energy", "💱 Grid prices")
         if f"{h}</b>\n<code>" not in nov3_tables], "<pre>" in nov3_tables), ([], False))
 
 print("\n== what the battery sold at, by time of day")
@@ -792,7 +792,7 @@ def tables_agree(label, totals, has_battery, **kw):
     check(f"{label}: and matches the sentences", amount(bill[-1].split()[-1]),
           amount(re.search(r"Bill total " + num, text).group(1)))
 
-    rows = [line.split() for line in section(tab, "⚡ Energy (kWh)").splitlines()[2:]]
+    rows = [line.split() for line in section(tab, "⚡ Energy").splitlines()[2:]]
     cell = lambda c: 0.0 if c == "–" else float(c)
     grid = [[cell(c) for c in row[1:]] for row in rows[:-1]]
     check(f"{label}: each source adds up", [round(sum(r[:-1]), 1) for r in grid], [r[-1] for r in grid])

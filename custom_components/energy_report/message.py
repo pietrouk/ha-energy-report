@@ -467,17 +467,21 @@ def render(
 NONE_CELL = "–"
 
 
-def _table(rows: list[list[str]], min_width: int = 5) -> str:
+# The widest line a phone shows in portrait before it wraps: 30 monospace
+# characters on Android Telegram.
+TABLE_WIDTH = 30
+
+
+def _table(rows: list[list[str]], min_width: int = 5, label_gap: int = 1) -> str:
     """Columns padded to line up in monospace: the first to the left, the
     numbers to the right and at least `min_width` wide, so neighbouring
-    figures never run together. Narrow on purpose - a phone shows about 32
-    monospace characters before it wraps."""
+    figures never run together. `label_gap` is extra space after the labels.
+    Narrow on purpose, to fit TABLE_WIDTH."""
     widths = [max(len(row[i]) for row in rows) for i in range(len(rows[0]))]
     widths[1:] = [max(width, min_width) for width in widths[1:]]
     lines = []
     for row in rows:
-        # A space more after the labels, so the corner stands clear of "House".
-        cells = [row[0].ljust(widths[0] + 1)] + [cell.rjust(widths[i]) for i, cell in enumerate(row) if i]
+        cells = [row[0].ljust(widths[0] + label_gap)] + [cell.rjust(widths[i]) for i, cell in enumerate(row) if i]
         lines.append(" ".join(cells).rstrip())
     return "\n".join(lines)
 
@@ -581,20 +585,21 @@ def render_tables(
         rows.append(f"{total_row[0].ljust(label_width)} {total_row[1].rjust(amount_width)}")
         return "\n".join(rows)
 
-    # Where the energy went: each row a source, each column where it went.
+    # Where the energy went: each row a source, each column where it went,
+    # "Batt" both ways so the widest line is 29 characters.
     # The bottom row is what each one took in, the right-hand column what
     # each one gave out.
     if has_battery:
         flows = [
-            ["from\\to", "House", "Batt", "Grid", "Total"],
+            ["kWh", "House", "Batt", "Grid", "Total"],
             ["Solar", _kwh(f.s2h), _kwh(f.s2b), _kwh(f.s2g), _kwh(f.solar)],
-            ["Battery", _kwh(f.b2h), NONE_CELL, _kwh(f.b2g), _kwh(f.supplied)],
+            ["Batt", _kwh(f.b2h), NONE_CELL, _kwh(f.b2g), _kwh(f.supplied)],
             ["Grid", _kwh(f.g2h), _kwh(f.g2b), NONE_CELL, _kwh(f.import_kwh)],
             ["Total", _kwh(f.house), _kwh(f.charged), _kwh(f.export_kwh), ""],
         ]
     else:
         flows = [
-            ["from\\to", "House", "Grid", "Total"],
+            ["kWh", "House", "Grid", "Total"],
             ["Solar", _kwh(f.s2h), _kwh(f.s2g), _kwh(f.solar)],
             ["Grid", _kwh(f.g2h), NONE_CELL, _kwh(f.import_kwh)],
             ["Total", _kwh(f.house), _kwh(f.export_kwh), ""],
@@ -637,8 +642,8 @@ def render_tables(
         f"<b>🧾 Bill</b>",
         f"<code>{sum_block(bill, bill_total)}</code>",
         "",
-        f"<b>⚡ Energy (kWh)</b>",
-        f"<code>{_table(flows)}</code>",
+        f"<b>⚡ Energy</b>",
+        f"<code>{_table(flows, label_gap=0)}</code>",
         "",
         f"<b>💱 Grid prices</b>",
         f"<code>{_table(grid, min_width=6)}</code>",

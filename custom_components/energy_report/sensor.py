@@ -248,7 +248,7 @@ class ReportPreview(EnergyReportEntity, SensorEntity):
         if (shown := self._preview) is None:
             return None
         return {
-            "message": plain(shown["message"]),
+            "message": plain(shown.get("shown", shown["message"])),
             "period": shown["period"],
             "start": shown["start"],
             "end": shown["end"],

@@ -4,6 +4,55 @@ A daily, weekly and monthly summary of where your solar, battery and grid energy
 actually went, and what it was worth, delivered through any Home Assistant
 notify service.
 
+In Telegram the figures come as tables, each one in a monospace block so the
+columns line up on a phone:
+
+```
+SOLAR & BATTERY REPORT
+Last 24 hours (Fri 25 Sep 15:10 - Sat 26 Sep 15:10)
+
+💷 Total earnings
+House load saved  +£1.86
+Exported          +£0.55
+Battery charging  -£0.14
+                  ──────
+Earnings           £2.27
+
+🧾 Bill
+Imported           £0.21
+Exported          -£0.55
+Standing charge    £0.42
+                  ──────
+Bill               £0.08
+
+⚡ Energy (kWh)
+from\to  House  Batt  Grid Total
+Solar      4.0   7.7   1.8  13.5
+Battery    3.3     –   2.9   6.2
+Grid       0.4   0.8     –   1.2
+Total      7.7   8.5   4.7
+
+💱 Grid prices
+Grid         kWh  p/kWh      £
+Import       1.2   16.6   0.21
+ house       0.4   16.8   0.07
+ battery     0.8   16.5   0.14
+Export       4.7   12.0   0.55
+ solar       1.8   12.0   0.21
+ battery     2.9   12.0   0.34
+
+📌 Highlights
+☀️ Solar: generated 13.5 kWh with a power peak of 3.0 kW at 11:45
+🔋 Battery 94% → 100%, full at 13:37
+🔄 0.4 cycles (6.2 kWh out of a 15 kWh battery)
+🏠 95% of the house ran on solar & battery
+💹 Bought at 16.5p, sold at 12.0p: 4.5p less than it cost
+🌡️ About 1.4 kWh lost in charging and discharging (round trip about 82%)
+```
+
+Every other messaging method gets the same figures as sentences, and so does
+Telegram if you set its layout to text:
+
 ```
 SOLAR & BATTERY REPORT
 Last 24 hours (Fri 25 Sep 15:10 - Sat 26 Sep 15:10)
@@ -39,6 +88,29 @@ Bill total £0.08: £0.21 imported, -£0.55 exported, £0.42 standing charge
 That is a real day: solar filling the battery, a cheap overnight top-up from the
 grid, and the battery selling some back in the evening. Headings are bold in
 Telegram; other messaging methods get plain text.
+
+### Reading the tables
+
+- **Energy**: each row is where energy came from, each column where it went.
+  Solar's row is what the panels made and where it ended up; the bottom row is
+  what the house used, what the battery took in and what was exported. A dash
+  is a flow that can't happen: the battery doesn't charge itself.
+- **Grid prices**: each import and export at its own average price, split by
+  where it went or came from. The amounts add up to the Bill's lines and to
+  the earnings, to the penny.
+- **Highlights**, each shown only when there's something to say:
+  - ☀️ what solar generated, and its power peak (with a solar power sensor)
+  - 🔋 the battery level at the start and end, the lowest it fell to and when
+    it was full (daily, with a battery level sensor)
+  - 🔄 cycles: what the battery supplied, divided by its capacity
+  - 🏠 how much of the house ran on solar and the battery
+  - 💹 the average price the battery charged from the grid at, against the
+    average it exported at, when it did both
+  - 🌡️ what was lost charging and discharging, and the round trip efficiency
+    (with the battery capacity)
+
+The tables are kept to 32 characters, the width a phone shows in portrait.
+Over a month a column widens to fit bigger numbers.
 
 It works with any inverter that exposes lifetime kWh counters. There are no
 helper entities or utility meters to create and keep in step: everything is read
@@ -182,8 +254,8 @@ rejects one rather than let the report silently return zeros.
 | Battery charged | no | leave both battery fields empty and the battery section disappears |
 | Battery discharged | no | |
 | Solar power | no | watts, `state_class: measurement`; adds the peak to the solar line |
-| Battery level | no | %, a battery-class sensor; adds the peak charge to the daily report |
-| Battery capacity | no | usable kWh; with the battery level, splits what was stored from what was lost |
+| Battery level | no | %, a battery-class sensor; adds the peak charge to the daily report, and the start, end and lowest levels to the Telegram highlights |
+| Battery capacity | no | usable kWh; with the battery level, splits what was stored from what was lost, and adds cycles and losses to the Telegram highlights |
 
 There's no house-load field. House load is calculated from the counters above,
 which keeps it in step with them inside every five-minute bucket.
@@ -288,10 +360,14 @@ days after the saving session that earned them.
 
 | Method | What you pick | Format |
 |---|---|---|
-| **Telegram** | the chat entities your Telegram bot created, and/or chat IDs (group chats start with a minus sign) | HTML, bold headings |
+| **Telegram** | the chat entities your Telegram bot created, and/or chat IDs (group chats start with a minus sign) | HTML: tables, or bold headings and sentences (the **Telegram layout** control) |
 | **Notify entity** | one or more `notify.*` entities, such as your phone's | plain text |
-| **Notify service** | a `notify.*` service by name, such as `notify.mobile_app_my_phone` (or `telegram_bot.send_message`, sent as HTML) | plain text |
+| **Notify service** | a `notify.*` service by name, such as `notify.mobile_app_my_phone` (or `telegram_bot.send_message`, sent as HTML in the Telegram layout) | plain text |
 | **Don't send** | nothing; call `energy_report.generate` and deliver the message yourself | |
+
+Only Telegram can show the tables, so every other method always gets the
+sentences. To have Telegram send the sentences as well, set **Telegram layout**
+on the device page to text.
 
 The notify service can be changed from the device page by any user, so only
 `notify.*` services and `telegram_bot.send_message` are accepted, both when it
@@ -342,12 +418,13 @@ The device page has the everyday controls:
 | Entity | What it does |
 |---|---|
 | Messaging method | Telegram, notify entity, notify service, or don't send |
+| Telegram layout | tables (the default) or text: how Telegram gets the report. Other methods always get text |
 | Messaging send to | where it goes, comma separated: Telegram chat entities and/or chat IDs, notify entities, or one service name. A bad value is refused with the reason |
 | Daily / Weekly / Monthly report | switches that turn each report on or off |
 | Daily / Weekly / Monthly report time | when each one goes out |
 | Daily report waits for sunset | whether the daily one waits for a later sunset |
 | Send daily / weekly / monthly report now | buttons that build and send one straight away |
-| Preview daily / weekly / monthly report | buttons that build one **without sending it**. It appears as a notification in Home Assistant, formatted, and each new preview replaces the last |
+| Preview daily / weekly / monthly report | buttons that build one **without sending it**. It appears as a notification in Home Assistant, formatted as it would be sent (tables included), and each new preview replaces the last |
 | Report preview | which report was last previewed; its `message` attribute holds the text |
 | Next daily / weekly / monthly report | when each one next goes out, sunset included; unknown while that report is off |
 | Import / Export rate (recorded) | the rate the reports are priced from, recorded from your price entity (its `recorded_from` attribute says which). Not the fallback. Keeps its last price across a restart |
@@ -365,17 +442,19 @@ data:
 response_variable: report
 ```
 
-The response includes `message` and `span` (the window, as the report
-names it); the totals `solar`, `house`, `imported`,
+The response includes `message` (the sentences), `message_tables` (the
+tables Telegram gets, as HTML) and `span` (the window, as the report names
+it); the totals `solar`, `house`, `imported`,
 `exported`, `charged` and `discharged`; each flow (`solar_to_house`,
 `solar_to_battery`, `solar_to_grid`, `battery_to_house`, `battery_to_grid`,
 `grid_to_house`, `grid_to_battery`) and the noise terms (`battery_churn`,
-`grid_hunting`); `battery_level_start` and `battery_level_end`; the money (`home_value`, `export_value`, `house_cost`,
+`grid_hunting`); `battery_level_start` and `battery_level_end` (with a battery level sensor); the money (`home_value`, `export_value`, `house_cost`,
 `battery_cost`, `total_earnings`, `standing_charge`, `bill_total`,
 `octopoints`, `octopoints_change`,
 `arbitrage`); and `covered_percent`,
-`peak_watts`, `peak_at`, `battery_peak_percent`, `battery_peak_at` (daily
-only, and null when the battery was already at its peak as the period began),
+`peak_watts`, `peak_at`, `battery_peak_percent`, `battery_peak_at`,
+`battery_low_percent`, `battery_low_at` (daily only; a time is null when the
+battery was already at that level as the period began),
 `estimated`, `buckets` and `unpriced_buckets`. That's enough to build your own
 card or message instead.
 

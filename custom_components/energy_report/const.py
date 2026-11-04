@@ -70,9 +70,9 @@ CONF_ARBITRAGE_GATE: Final = "arbitrage_gate"
 CONF_ARBITRAGE_GATE_STATE: Final = "arbitrage_gate_state"
 CONF_CURRENCY: Final = "currency"
 
-# --- delivery. Telegram gets the message as HTML, so the headings are bold;
-# everything else gets plain text, because a phone notification would show the
-# tags literally.
+# --- delivery. Telegram gets the message as HTML, so the headings are bold and
+# the tables line up; everything else gets plain text, because a phone
+# notification would show the tags literally.
 CONF_DELIVERY: Final = "delivery"
 DELIVERY_TELEGRAM: Final = "telegram"
 DELIVERY_NOTIFY_ENTITY: Final = "notify_entity"
@@ -84,6 +84,13 @@ CONF_TELEGRAM_ENTITIES: Final = "telegram_entities"
 CONF_TELEGRAM_CHAT_IDS: Final = "telegram_chat_ids"
 CONF_NOTIFY_ENTITIES: Final = "notify_entities"
 CONF_NOTIFY_SERVICE: Final = "notify_service"
+# How Telegram gets the report: tables (aligned in monospace blocks, which only
+# Telegram shows) or the same sentences every other method gets.
+CONF_TELEGRAM_LAYOUT: Final = "telegram_layout"
+LAYOUT_TABLES: Final = "tables"
+LAYOUT_TEXT: Final = "text"
+LAYOUTS: Final = [LAYOUT_TABLES, LAYOUT_TEXT]
+DEFAULT_TELEGRAM_LAYOUT: Final = LAYOUT_TABLES
 
 # --- schedules
 CONF_DAILY_TIME: Final = "daily_time"
@@ -104,7 +111,7 @@ SCHEDULE_KEYS: Final = frozenset({
 })
 MESSAGING_KEYS: Final = frozenset({
     CONF_DELIVERY, CONF_TELEGRAM_ENTITIES, CONF_TELEGRAM_CHAT_IDS,
-    CONF_NOTIFY_ENTITIES, CONF_NOTIFY_SERVICE,
+    CONF_NOTIFY_ENTITIES, CONF_NOTIFY_SERVICE, CONF_TELEGRAM_LAYOUT,
 })
 
 DEFAULT_CURRENCY: Final = "£"

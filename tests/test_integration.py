@@ -127,6 +127,7 @@ async def test_device_page_entities(hass: HomeAssistant, world) -> None:
         "sensor.solar_battery_reports_next_daily_report", "sensor.solar_battery_reports_next_weekly_report",
         "sensor.solar_battery_reports_next_monthly_report", "sensor.solar_battery_reports_import_rate_recorded",
         "select.solar_battery_reports_messaging_method", "text.solar_battery_reports_messaging_send_to",
+        "select.solar_battery_reports_telegram_layout",
     ):
         assert hass.states.get(entity_id) is not None, entity_id
 
@@ -172,8 +173,59 @@ async def test_send_button_telegram(hass: HomeAssistant, world) -> None:
     assert all(c.data["parse_mode"] == "html" for c in calls)
     # Telegram's HTML mode needs & escaped; plain-text delivery unescapes it.
     assert "<b>SOLAR &amp; BATTERY REPORT</b>\nLast week (" in calls[0].data["message"]
+    # Tables unless told otherwise
+    assert "<b>🧾 Bill</b>\n<pre>Imported " in calls[0].data["message"]
+    assert "<b>📌 Highlights</b>\n☀️ Solar: generated " in calls[0].data["message"]
     assert {tuple(c.data.get("entity_id", [])) for c in calls} >= {("notify.bot_chat",)}
     assert [c.data["chat_id"] for c in calls if "chat_id" in c.data] == [[CHAT]]
+
+
+async def test_telegram_layout_from_the_device_page(hass: HomeAssistant, world) -> None:
+    """Text puts Telegram back on the sentences; tables never reach anything
+    that is not Telegram."""
+    entry = await _setup(hass, delivery="telegram", telegram_chat_ids=[CHAT])
+    layout = "select.solar_battery_reports_telegram_layout"
+    assert hass.states.get(layout).state == "tables"
+
+    await hass.services.async_call("select", "select_option", {"entity_id": layout, "option": "text"},
+                                   blocking=True)
+    await hass.async_block_till_done()
+    assert entry.options["telegram_layout"] == "text"
+    assert hass.states.get(layout).state == "text"
+    await hass.services.async_call("button", "press",
+                                   {"entity_id": "button.solar_battery_reports_send_daily_report_now"}, blocking=True)
+    (call,) = world["telegram"]
+    assert "<pre>" not in call.data["message"]
+    assert "<b>🧾 Bill</b>\nBill total " in call.data["message"]
+
+    # telegram_bot.send_message as a notify service is Telegram too.
+    await hass.services.async_call("select", "select_option", {"entity_id": layout, "option": "tables"},
+                                   blocking=True)
+    hass.config_entries.async_update_entry(
+        entry, options={**entry.options, "delivery": "notify_service",
+                        "notify_service": "telegram_bot.send_message"})
+    await hass.async_block_till_done()
+    await hass.services.async_call("button", "press",
+                                   {"entity_id": "button.solar_battery_reports_send_daily_report_now"}, blocking=True)
+    assert "<b>🧾 Bill</b>\n<pre>Imported " in world["telegram"][-1].data["message"]
+
+    # A phone gets the sentences whatever the layout says.
+    hass.config_entries.async_update_entry(
+        entry, options={**entry.options, "delivery": "notify_entity", "notify_entities": ["notify.phone"]})
+    await hass.async_block_till_done()
+    await hass.services.async_call("button", "press",
+                                   {"entity_id": "button.solar_battery_reports_send_daily_report_now"}, blocking=True)
+    (call,) = world["notify"]
+    assert "\n🧾 Bill\nBill total " in call.data["message"]
+    assert "from\\to" not in call.data["message"] and "<" not in call.data["message"]
+
+
+async def test_generate_returns_both_layouts(hass: HomeAssistant, world) -> None:
+    await _setup(hass, delivery="none")
+    result = await hass.services.async_call(DOMAIN, "generate", {"period": "daily"},
+                                            blocking=True, return_response=True)
+    assert "<pre>" not in result["message"]
+    assert "<b>⚡ Energy (kWh)</b>\n<pre>from\\to " in result["message_tables"]
 
 
 @pytest.mark.parametrize(("now", "heading"), [
@@ -219,7 +271,7 @@ async def test_configure_menu(hass: HomeAssistant, world) -> None:
     assert result["type"] is FlowResultType.MENU
     assert set(result["menu_options"]) == {"energy", "rates", "delivery", "schedule"}
     shown = result["description_placeholders"]
-    assert shown["delivery"] == f"Telegram to chat {CHAT}"
+    assert shown["delivery"] == f"Telegram to chat {CHAT}, as tables"
     assert shown["schedule"] == "daily at 19:00 or sunset if later"
     assert "solar sensor.pv_total" in shown["energy"] and "solar power sensor.pv_power" in shown["energy"]
     assert shown["prices"].startswith(
@@ -519,12 +571,14 @@ async def test_preview_shows_the_report_without_sending_it(hass: HomeAssistant, 
     (notification,) = [n for key, n in _async_get_or_create_notifications(hass).items() if "preview" in key]
     assert notification["title"] == "Weekly report preview (not sent)"
     assert notification["message"].startswith("**SOLAR & BATTERY REPORT**  \nLast week (")
-    assert "**🧾 Bill**  \nBill total " in notification["message"]
+    # What Telegram would get: the tables, each one a code block so it lines up.
+    assert "**🧾 Bill**  \n```\nImported " in notification["message"]
+    assert "\n```  \n  \n**⚡ Energy (kWh)**  \n```\nfrom\\to " in notification["message"]
 
     state = hass.states.get("sensor.solar_battery_reports_report_preview")
     assert state.state.startswith("Weekly: ")
     assert state.attributes["message"].startswith("SOLAR & BATTERY REPORT\nLast week (")
-    assert "<b>" not in state.attributes["message"]
+    assert "<b>" not in state.attributes["message"] and "<pre>" not in state.attributes["message"]
 
     # A second preview replaces the first rather than piling up.
     await hass.services.async_call("button", "press",

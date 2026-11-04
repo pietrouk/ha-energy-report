@@ -47,13 +47,16 @@ from .const import (
     CONF_STANDING_CHARGE_SCALE,
     CONF_TELEGRAM_CHAT_IDS,
     CONF_TELEGRAM_ENTITIES,
+    CONF_TELEGRAM_LAYOUT,
     COMPILE_GRACE_SECONDS,
     DEFAULT_CURRENCY,
     DEFAULT_RATE_SCALE,
+    DEFAULT_TELEGRAM_LAYOUT,
     DELIVERY_NOTIFY_ENTITY,
     DELIVERY_NOTIFY_SERVICE,
     DELIVERY_TELEGRAM,
     DOMAIN,
+    LAYOUT_TABLES,
     NAME,
     OLD_NAME,
     PERIOD_DAILY,
@@ -72,8 +75,8 @@ from .const import (
     SIGNAL_SCHEDULE,
 )
 from .config_flow import delivery_method, notify_service_target
-from .message import charge_text, peak_text, render
-from .report import choose_fallback, first_peak, summarise
+from .message import charge_text, peak_text, render, render_tables
+from .report import choose_fallback, first_low, first_peak, summarise
 from .statistics import collect, counter_over, level_at, level_history
 from .window import days_between, is_rolling, span_label, window_for
 
@@ -196,15 +199,20 @@ async def build(hass: HomeAssistant, entry: ConfigEntry, period: str,
     arbitrage, note = _arbitrage(hass, config, collected.extras)
     has_battery = bool(config.get(CONF_CHARGE_ENERGY) or config.get(CONF_DISCHARGE_ENERGY))
     # Daily only: over a week or a month the battery is full most sunny days,
-    # and the first of them says little.
-    charge_peak = None
-    if period == PERIOD_DAILY and has_battery and (soc_id := config.get(CONF_BATTERY_SOC)):
-        charge_peak = first_peak(await level_history(hass, soc_id, start, end), start)
+    # and the first of them says little. The same for the lowest level, which
+    # only the tables show.
+    soc_id = config.get(CONF_BATTERY_SOC) if has_battery else None
+    charge_peak = charge_low = None
+    if period == PERIOD_DAILY and soc_id:
+        readings = await level_history(hass, soc_id, start, end)
+        charge_peak = first_peak(readings, start)
+        charge_low = first_low(readings, start)
     standing = _standing_charge(hass, config, start, end)
-    # The battery level at both ends, for what was stored as against lost.
+    # The battery level at both ends. With the capacity it splits what was
+    # stored from what was lost; without it the tables still show the levels.
     capacity = config.get(CONF_BATTERY_CAPACITY)
     levels = None
-    if has_battery and capacity and (soc_id := config.get(CONF_BATTERY_SOC)):
+    if soc_id:
         first = await level_at(hass, soc_id, start, inside_before=False)
         last = await level_at(hass, soc_id, end, inside_before=True)
         if first is not None and last is not None:
@@ -215,27 +223,35 @@ async def build(hass: HomeAssistant, entry: ConfigEntry, period: str,
     if period != PERIOD_DAILY and (points_id := config.get(CONF_OCTOPOINTS)):
         points = await counter_over(hass, points_id, start, end)
     currency = config.get(CONF_CURRENCY, DEFAULT_CURRENCY)
-    text = render(
-        totals,
-        period,
-        span_label(period, start, end),
-        currency=currency,
-        arbitrage=arbitrage,
-        arbitrage_note=note,
-        has_battery=has_battery,
-        peak=peak_text(period, collected.peak_watts, collected.peak_at),
-        charge=charge_text(*charge_peak, dt_util.as_local(end)) if charge_peak else None,
-        standing=standing,
-        levels=levels,
-        capacity=capacity,
-        points=points,
+    shared = {
+        "currency": currency,
+        "arbitrage": arbitrage,
+        "arbitrage_note": note,
+        "has_battery": has_battery,
+        "peak": peak_text(period, collected.peak_watts, collected.peak_at),
+        "standing": standing,
+        "levels": levels,
+        "capacity": capacity,
+        "points": points,
         # Octopoints are worth pence; in any other currency the value is not shown.
-        points_per_pound=OCTOPOINTS_PER_POUND if currency == "£" else None,
-        rolling=is_rolling(period, start, end),
+        "points_per_pound": OCTOPOINTS_PER_POUND if currency == "£" else None,
+        "rolling": is_rolling(period, start, end),
+    }
+    span = span_label(period, start, end)
+    text = render(
+        totals, period, span,
+        charge=charge_text(*charge_peak, dt_util.as_local(end)) if charge_peak else None,
+        **shared,
+    )
+    tables = render_tables(
+        totals, period, span,
+        charge_peak=charge_peak, low=charge_low, end=dt_util.as_local(end),
+        **shared,
     )
 
     return {
         "message": text,
+        "message_tables": tables,
         "period": period,
         "span": span_label(period, start, end),
         "start": start.isoformat(),
@@ -273,6 +289,8 @@ async def build(hass: HomeAssistant, entry: ConfigEntry, period: str,
         "peak_at": collected.peak_at.isoformat() if collected.peak_at else None,
         "battery_peak_percent": charge_peak[0] if charge_peak else None,
         "battery_peak_at": charge_peak[1].isoformat() if charge_peak and charge_peak[1] else None,
+        "battery_low_percent": charge_low[0] if charge_low else None,
+        "battery_low_at": charge_low[1].isoformat() if charge_low and charge_low[1] else None,
         "estimated": totals.estimated,
         "buckets": totals.priced_buckets + totals.unpriced_buckets,
         "unpriced_buckets": totals.unpriced_buckets,
@@ -375,7 +393,7 @@ def _register_services(hass: HomeAssistant) -> None:
         entry = await _pick(call)
         result = await build(hass, entry, call.data["period"],
                              call.data.get("start"), call.data.get("end"))
-        await deliver(hass, entry, result["message"])
+        await deliver(hass, entry, result)
         return result
 
     hass.services.async_register(
@@ -394,13 +412,39 @@ def plain(message: str) -> str:
     return html.unescape(re.sub(r"</?[a-z]+>", "", message))
 
 
-async def deliver(hass: HomeAssistant, entry: ConfigEntry, message: str) -> None:
-    """Send a report the configured way. Raises if no way is configured."""
+def tables_wanted(config: dict) -> bool:
+    """Whether Telegram gets the tables rather than the sentences."""
+    return (config.get(CONF_TELEGRAM_LAYOUT) or DEFAULT_TELEGRAM_LAYOUT) == LAYOUT_TABLES
+
+
+def goes_to_telegram(config: dict) -> bool:
+    """Whether the configured messaging ends up in Telegram, which alone can
+    show the tables."""
+    method = delivery_method(config)
+    if method == DELIVERY_TELEGRAM:
+        return True
+    if method == DELIVERY_NOTIFY_SERVICE:
+        return notify_service_target(config.get(CONF_NOTIFY_SERVICE) or "") == ("telegram_bot", "send_message")
+    return False
+
+
+def for_telegram(config: dict, result: dict) -> str:
+    """The version of a built report that Telegram gets."""
+    if tables_wanted(config) and result.get("message_tables"):
+        return result["message_tables"]
+    return result["message"]
+
+
+async def deliver(hass: HomeAssistant, entry: ConfigEntry, result: dict) -> None:
+    """Send a built report the configured way. Raises if no way is configured.
+    Telegram gets the tables or the sentences, as chosen; everything else gets
+    the sentences as plain text."""
     config = options(entry)
     method = delivery_method(config)
+    message = result["message"]
 
     if method == DELIVERY_TELEGRAM:
-        base = {"message": message, "parse_mode": "html"}
+        base = {"message": for_telegram(config, result), "parse_mode": "html"}
         entities = config.get(CONF_TELEGRAM_ENTITIES) or []
         chat_ids = config.get(CONF_TELEGRAM_CHAT_IDS) or []
         if not entities and not chat_ids:
@@ -436,7 +480,7 @@ async def deliver(hass: HomeAssistant, entry: ConfigEntry, message: str) -> None
         domain, service = target
         data = {"message": plain(message)}
         if domain == "telegram_bot":
-            data = {"message": message, "parse_mode": "html"}
+            data = {"message": for_telegram(config, result), "parse_mode": "html"}
         await hass.services.async_call(domain, service, data, blocking=True)
         return
 
@@ -448,20 +492,32 @@ async def deliver(hass: HomeAssistant, entry: ConfigEntry, message: str) -> None
 
 def markdown(message: str) -> str:
     """The message as Markdown, for a notification in Home Assistant itself:
-    bold and italic kept, and every line break kept as one."""
-    text = re.sub(r"</?i>", "*", re.sub(r"</?b>", "**", message))
-    return html.unescape(text).replace("\n", "  \n")
+    bold and italic kept, every line break kept as one, and a table as a code
+    block so its columns still line up."""
+    parts = re.split(r"<pre>(.*?)</pre>", message, flags=re.S)
+    out = []
+    for i, part in enumerate(parts):
+        if i % 2:
+            out.append(f"```\n{html.unescape(part)}\n```")
+        else:
+            text = re.sub(r"</?i>", "*", re.sub(r"</?b>", "**", part))
+            out.append(html.unescape(text).replace("\n", "  \n"))
+    return "".join(out)
 
 
 async def preview(hass: HomeAssistant, entry: ConfigEntry, period: str) -> dict:
     """Build a report and show it in Home Assistant, sending nothing: as a
     notification, formatted, and on the Report preview sensor."""
     result = await build(hass, entry, period)
-    hass.data[DOMAIN][entry.entry_id]["preview"] = result | {"generated_at": dt_util.now()}
+    # What would be sent: the tables when they would go to Telegram.
+    config = options(entry)
+    shown = for_telegram(config, result) if goes_to_telegram(config) else result["message"]
+    hass.data[DOMAIN][entry.entry_id]["preview"] = result | {
+        "generated_at": dt_util.now(), "shown": shown}
     async_dispatcher_send(hass, SIGNAL_PREVIEW.format(entry.entry_id))
     # One notification per entry, replaced by the next preview.
     persistent_notification.async_create(
-        hass, markdown(result["message"]), title=f"{period.capitalize()} report preview (not sent)",
+        hass, markdown(shown), title=f"{period.capitalize()} report preview (not sent)",
         notification_id=f"{DOMAIN}_{entry.entry_id}_preview")
     return result
 
@@ -469,7 +525,7 @@ async def preview(hass: HomeAssistant, entry: ConfigEntry, period: str) -> dict:
 async def run(hass: HomeAssistant, entry: ConfigEntry, period: str) -> dict:
     """Build a report and send it: what the schedule and the buttons do."""
     result = await build(hass, entry, period)
-    await deliver(hass, entry, result["message"])
+    await deliver(hass, entry, result)
     return result
 
 

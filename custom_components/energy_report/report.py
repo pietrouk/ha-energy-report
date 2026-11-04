@@ -260,6 +260,17 @@ def first_peak(readings: list[tuple[datetime, float]],
     return peak, None
 
 
+def first_low(readings: list[tuple[datetime, float]],
+              start: datetime) -> tuple[float, datetime | None] | None:
+    """The lowest level over a period, and when it was first reached: the
+    same rules as first_peak, upside down."""
+    found = first_peak([(at, -level) for at, level in readings], start)
+    if found is None:
+        return None
+    level, at = found
+    return -level + 0.0, at
+
+
 def choose_fallback(average: object, configured: object, recorded: list[float | None],
                     live: object, divisor: float = 1.0) -> float:
     """The rate for buckets with no recorded price, in currency units per kWh.

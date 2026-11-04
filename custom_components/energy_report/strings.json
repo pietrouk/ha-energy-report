@@ -126,7 +126,7 @@
       },
       "delivery": {
         "title": "Messaging",
-        "description": "How the report is sent. Telegram gets the formatted version with bold headings; other methods get plain text. The next page asks for the chat or device.",
+        "description": "How the report is sent. Telegram gets the formatted version, as tables or as text (the Telegram layout control on the device page); other methods get plain text. The next page asks for the chat or device.",
         "data": {
           "delivery": "Send reports by"
         }
@@ -197,6 +197,12 @@
           "notify_entity": "Notify entity",
           "notify_service": "Notify service",
           "none": "Don't send"
+        }
+      },
+      "telegram_layout": {
+        "state": {
+          "tables": "Tables",
+          "text": "Text, as other methods get it"
         }
       }
     }

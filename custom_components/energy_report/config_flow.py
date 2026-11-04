@@ -66,6 +66,7 @@ from .const import (
     CONF_STANDING_CHARGE_SCALE,
     CONF_TELEGRAM_CHAT_IDS,
     CONF_TELEGRAM_ENTITIES,
+    CONF_TELEGRAM_LAYOUT,
     CONF_WEEKLY_TIME,
     DEFAULT_CURRENCY,
     DEFAULT_DAILY_TIME,
@@ -78,6 +79,7 @@ from .const import (
     DELIVERY_NOTIFY_SERVICE,
     DELIVERY_TELEGRAM,
     DOMAIN,
+    LAYOUT_TEXT,
     NAME,
     STATISTIC_STATE_CLASSES,
 )
@@ -227,7 +229,7 @@ def summary(hass: HomeAssistant, entry_id: str, config: dict[str, Any]) -> dict[
     if method == DELIVERY_TELEGRAM:
         targets = [*(config.get(CONF_TELEGRAM_ENTITIES) or []),
                    *(f"chat {c}" for c in config.get(CONF_TELEGRAM_CHAT_IDS) or [])]
-        delivery = f"Telegram to {listed(targets) or 'nobody yet'}"
+        delivery = f"Telegram to {listed(targets) or 'nobody yet'}, as {_layout(config)}"
     elif method == DELIVERY_NOTIFY_ENTITY:
         delivery = f"notify entities {listed(config.get(CONF_NOTIFY_ENTITIES)) or '(none picked)'}"
     elif method == DELIVERY_NOTIFY_SERVICE:
@@ -306,6 +308,12 @@ def _prices_summary(hass: HomeAssistant, entry_id: str, config: dict[str, Any]) 
     if config.get(CONF_OCTOPOINTS):
         parts.append(f"Octopoints from {config[CONF_OCTOPOINTS]}, weekly and monthly")
     return "; ".join(parts)
+
+
+def _layout(config: dict[str, Any]) -> str:
+    """How Telegram lays the report out, as the summary names it."""
+    layout = config.get(CONF_TELEGRAM_LAYOUT)
+    return "text" if layout == LAYOUT_TEXT else "tables"
 
 
 def delivery_method(config: dict[str, Any]) -> str:

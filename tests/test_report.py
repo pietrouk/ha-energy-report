@@ -27,9 +27,11 @@ sys.modules["energy_report"] = stub
 
 _message = importlib.import_module("energy_report.message")
 render, peak_text, charge_text = _message.render, _message.peak_text, _message.charge_text
+render_tables = _message.render_tables
 _report = importlib.import_module("energy_report.report")
 Bucket, summarise, split, choose_fallback = _report.Bucket, _report.summarise, _report.split, _report.choose_fallback
-first_peak = _report.first_peak
+first_peak, first_low = _report.first_peak, _report.first_low
+Totals = _report.Totals
 scheduled_price = _report.scheduled_price
 _window = importlib.import_module("energy_report.window")
 span_label, window_for, days_between = _window.span_label, _window.window_for, _window.days_between
@@ -46,7 +48,7 @@ def check(label, got, want):
 
 
 def plain(message):
-    return html.unescape(re.sub(r"</?[bi]>", "", message))
+    return html.unescape(re.sub(r"</?(?:b|i|pre)>", "", message))
 
 
 def section(text, heading):
@@ -614,6 +616,178 @@ adds_up("charged to export", dumped)
 free = plain(render(summarise([Bucket(pv=1.0, imported=1.0, import_rate=0.0)]), "daily", "x"))
 check("a free import still counts in the kWh", "1.0 imported at 0.0p for £0.00" in free, True)
 adds_up("free import", free)
+
+print("\n== tables, for Telegram")
+# The report for Mon 2 Nov 19:00 - Tue 3 Nov 19:00, from its own flows and money.
+nov3 = Totals(pv=3.4, imported=22.1, exported=14.3, charged=21.2, discharged=18.7, house=8.7,
+              solar_to_house=1.7, solar_to_battery=1.4, solar_to_grid=0.3, battery_to_house=4.7,
+              battery_to_grid=14.0, grid_to_house=2.3, grid_to_battery=19.8,
+              home_value=2.08, export_value=3.92, solar_export_value=0.0585, battery_export_value=3.864,
+              house_cost=0.3864, battery_cost=1.8810, priced_buckets=288)
+NOV3_END = datetime(2026, 11, 3, 19, 0)
+nov3_tables = render_tables(nov3, "daily", "Mon 2 Nov 19:00 - Tue 3 Nov 19:00", standing=0.42,
+                            peak="2.5 kW at 10:40", charge_peak=(100.0, datetime(2026, 11, 3, 11, 34)),
+                            low=(2.0, datetime(2026, 11, 2, 21, 33)), end=NOV3_END,
+                            levels=(18.0, 16.0), capacity=15)
+check("a real day, as tables", nov3_tables, """<b>SOLAR &amp; BATTERY REPORT</b>
+Last 24 hours (Mon 2 Nov 19:00 - Tue 3 Nov 19:00)
+
+<b>💷 Total earnings</b>
+<pre>House load saved  +£2.08
+Exported          +£3.92
+Battery charging  -£1.88
+                  ──────
+Earnings           £4.12</pre>
+
+<b>🧾 Bill</b>
+<pre>Imported           £2.27
+Exported          -£3.92
+Standing charge    £0.42
+                  ──────
+Bill              -£1.23</pre>
+
+<b>⚡ Energy (kWh)</b>
+<pre>from\\to  House  Batt  Grid Total
+Solar      1.7   1.4   0.3   3.4
+Battery    4.7     –  14.0  18.7
+Grid       2.3  19.8     –  22.1
+Total      8.7  21.2  14.3</pre>
+
+<b>💱 Grid prices</b>
+<pre>Grid         kWh  p/kWh      £
+Import      22.1   10.3   2.27
+ house       2.3   16.8   0.39
+ battery    19.8    9.5   1.88
+Export      14.3   27.4   3.92
+ solar       0.3   19.5   0.06
+ battery    14.0   27.6   3.86</pre>
+
+<b>📌 Highlights</b>
+☀️ Solar: generated 3.4 kWh with a power peak of 2.5 kW at 10:40
+🔋 Battery 18% → 16%, lowest 2% at 21:33 Mon, full at 11:34
+🔄 1.2 cycles (18.7 kWh out of a 15 kWh battery)
+🏠 74% of the house ran on solar &amp; battery
+💹 Bought at 9.5p, sold at 27.6p: an 18.1p spread
+🌡️ About 2.8 kWh lost in charging and discharging (round trip about 87%)""")
+widest = max(len(line) for block in re.findall(r"<pre>(.*?)</pre>", nov3_tables, re.S)
+             for line in html.unescape(block).splitlines())
+check("every table fits a phone, 32 characters", widest <= 32, True)
+check("the sentences say the same", ("= £4.12" in render(nov3, "daily", "x", standing=0.42),
+                                     "Bill total -£1.23" in render(nov3, "daily", "x", standing=0.42)),
+      (True, True))
+
+plain_tables = plain(render_tables(nov3, "daily", "x"))
+check("no capacity: no cycles and no losses", ("🔄" in plain_tables, "🌡️" in plain_tables), (False, False))
+check("no levels: no battery highlight", "🔋" in plain_tables, False)
+check("no peak: generation alone", "\n☀️ Solar: generated 3.4 kWh\n" in plain_tables, True)
+check("no standing charge: none in the bill", "Standing" in plain_tables, False)
+check("a peak short of full says so",
+      section(plain(render_tables(nov3, "daily", "x", charge_peak=(87.5, datetime(2026, 11, 3, 13, 5)),
+                                  end=NOV3_END)), "📌 Highlights").splitlines()[2],
+      "🔋 Battery peak 87.5% at 13:05")
+check("a low and a peak only there as the period began are left to the start level",
+      section(plain(render_tables(nov3, "daily", "x", levels=(100.0, 40.0), charge_peak=(100.0, None),
+                                  low=(40.0, None), end=NOV3_END)), "📌 Highlights").splitlines()[2],
+      "🔋 Battery 100% → 40%")
+check("a weekly peak names its day",
+      "with a power peak of 3.8 kW on Thu 17 Sep\n" in plain(render_tables(nov3, "weekly", "x",
+                                                                           peak="3.8 kW on Thu 17 Sep")), True)
+dear = Totals(**{**nov3.__dict__, "battery_export_value": 0.98})
+check("selling for less than it cost says so",
+      "💹 Bought at 9.5p, sold at 7.0p: 2.5p less than it cost" in plain(render_tables(dear, "daily", "x")), True)
+check("an 8p spread, a 9.5p one", (_message._article("8.0p"), _message._article("11.2p"),
+                                   _message._article("9.5p"), _message._article("110.0p")),
+      ("an", "an", "a", "a"))
+
+solo = plain(render_tables(summarise([Bucket(pv=4.0, exported=1.5, import_rate=RATE, export_rate=EXPORT),
+                                      Bucket(imported=1.0, import_rate=RATE)]), "daily", "x", has_battery=False))
+check("no battery: SOLAR REPORT", solo.splitlines()[0], "SOLAR REPORT")
+check("no battery: no battery column, row or charging line",
+      ("Batt" in solo, "Battery" in solo, " battery" in solo, "🔋" in solo), (False, False, False, False))
+check("no battery: the flows",
+      section(solo, "⚡ Energy (kWh)").splitlines()[1:],
+      ["from\\to  House  Grid Total", "Solar      2.5   1.5   4.0", "Grid       1.0     –   1.0",
+       "Total      3.5   1.5"])
+check("euros: c/kWh and €", section(plain(render_tables(nov3, "daily", "x", currency="€")),
+                                    "💱 Grid prices").splitlines()[1], "Grid         kWh  c/kWh      €")
+check("no minor unit: whole units per kWh",
+      section(plain(render_tables(nov3, "daily", "x", currency="kr")), "💱 Grid prices").splitlines()[2],
+      "Import      22.1  0.103   2.27")
+check("Octopoints, arbitrage and the estimate note come after the highlights",
+      [h for h in ("📌", "🐙", "📈") if h in render_tables(t, "weekly", "x", arbitrage=0.32,
+                                                          points=(1396.0, 352.0, None))],
+      ["📌", "🐙", "📈"])
+
+print("\n== the lowest level")
+check("lowest, first reached", first_low([(on(28, 0, 0), 40.0), (on(28, 2, 0), 5.0), (on(28, 3, 0), 9.0),
+                                         (on(28, 4, 0), 5.0)], on(28, 0, 0)), (5.0, on(28, 2, 0)))
+check("lowest as the period began", first_low([(on(28, 0, 0), 4.0), (on(28, 2, 0), 9.0)], on(28, 0, 0)),
+      (4.0, None))
+check("no readings, no low", first_low([], on(28, 0, 0)), None)
+
+
+def tables_agree(label, totals, has_battery, **kw):
+    """Every figure in the tables adds up and matches the sentences."""
+    text = plain(render(totals, "daily", "x", has_battery=has_battery, **kw))
+    tab = plain(render_tables(totals, "daily", "x", has_battery=has_battery, **kw))
+    num = r"(-?£?-?\d+\.\d+)"
+
+    def amount(cell):
+        return float(cell.replace("£", ""))
+
+    earn = section(tab, "💷 Total earnings").splitlines()[1:]
+    parts = [amount(line.split()[-1]) for line in earn[:-2]]
+    check(f"{label}: earnings add up", round(sum(parts), 2), amount(earn[-1].split()[-1]))
+    check(f"{label}: and match the sentences", amount(earn[-1].split()[-1]),
+          amount(re.search(r"= " + num, text).group(1)))
+    bill = section(tab, "🧾 Bill").splitlines()[1:]
+    check(f"{label}: the bill adds up", round(sum(amount(l.split()[-1]) for l in bill[:-2]), 2),
+          amount(bill[-1].split()[-1]))
+    check(f"{label}: and matches the sentences", amount(bill[-1].split()[-1]),
+          amount(re.search(r"Bill total " + num, text).group(1)))
+
+    rows = [line.split() for line in section(tab, "⚡ Energy (kWh)").splitlines()[2:]]
+    cell = lambda c: 0.0 if c == "–" else float(c)
+    grid = [[cell(c) for c in row[1:]] for row in rows[:-1]]
+    check(f"{label}: each source adds up", [round(sum(r[:-1]), 1) for r in grid], [r[-1] for r in grid])
+    check(f"{label}: each destination adds up",
+          [round(sum(r[i] for r in grid), 1) for i in range(len(grid[0]) - 1)],
+          [float(c) for c in rows[-1][1:]])
+    check(f"{label}: solar matches the sentences", grid[0][-1],
+          float(re.search(r"Generated (\d+\.\d)", text).group(1)))
+
+    prices = [line.split() for line in section(tab, "💱 Grid prices").splitlines()[2:]]
+    if has_battery:
+        for top in (0, 3):
+            check(f"{label}: grid row {prices[top][0]} adds up",
+                  (round(float(prices[top + 1][1]) + float(prices[top + 2][1]), 1),
+                   round(amount(prices[top + 1][-1]) + amount(prices[top + 2][-1]), 2)),
+                  (float(prices[top][1]), amount(prices[top][-1])))
+
+
+rng = random.Random(23)
+broken = []
+for trial in range(200):
+    buckets = [Bucket(pv=round(rng.uniform(0, 0.4), 3) * (rng.random() < 0.6),
+                      imported=round(rng.uniform(0, 0.3), 3) * (rng.random() < 0.3),
+                      exported=round(rng.uniform(0, 0.4), 3) * (rng.random() < 0.3),
+                      charged=round(rng.uniform(0, 0.4), 3) * (rng.random() < 0.4),
+                      discharged=round(rng.uniform(0, 0.4), 3) * (rng.random() < 0.4),
+                      import_rate=rng.choice([0.1529, 0.2547, 0.0, -0.05, None]),
+                      export_rate=rng.choice([0.12, 0.2143, -0.01, None]))
+               for _ in range(rng.randint(1, 288))]
+    battery = rng.random() < 0.8
+    if not battery:
+        buckets = [Bucket(pv=b.pv, imported=b.imported, exported=b.exported, import_rate=b.import_rate,
+                          export_rate=b.export_rate) for b in buckets]
+    before = failures
+    with contextlib.redirect_stdout(io.StringIO()):
+        tables_agree(f"trial {trial}", summarise(buckets, 0.2547, 0.12), battery,
+                     standing=rng.choice([None, 0.4242]),
+                     levels=rng.choice([None, (20.0, 74.0), (95.0, 12.5)]), capacity=15.7)
+    if failures > before:
+        broken.append(trial)
+check("200 random days: the tables add up and match the sentences", broken, [])
 
 print("\n== prices and HTML")
 check("pence for pounds", _message._price("£", 0.33, 2.0), "16.5p")

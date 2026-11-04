@@ -76,7 +76,7 @@ from .const import (
 )
 from .config_flow import delivery_method, notify_service_target
 from .message import charge_text, peak_text, render, render_tables
-from .report import choose_fallback, first_low, first_peak, summarise
+from .report import battery_sales, choose_fallback, first_low, first_peak, summarise
 from .statistics import collect, counter_over, level_at, level_history
 from .window import days_between, is_rolling, span_label, window_for
 
@@ -186,15 +186,13 @@ async def build(hass: HomeAssistant, entry: ConfigEntry, period: str,
     )
 
     divisor = RATE_SCALES[config.get(CONF_RATE_SCALE, DEFAULT_RATE_SCALE)]
-    totals = summarise(
-        collected.buckets,
-        fallback_import_rate=_fallback_rate(
-            hass, config.get(CONF_IMPORT_RATE), divisor, config.get(CONF_FALLBACK_IMPORT_RATE),
-            [b.import_rate for b in collected.buckets]),
-        fallback_export_rate=_fallback_rate(
-            hass, config.get(CONF_EXPORT_RATE), divisor, config.get(CONF_FALLBACK_EXPORT_RATE),
-            [b.export_rate for b in collected.buckets]),
+    fallbacks = (
+        _fallback_rate(hass, config.get(CONF_IMPORT_RATE), divisor, config.get(CONF_FALLBACK_IMPORT_RATE),
+                       [b.import_rate for b in collected.buckets]),
+        _fallback_rate(hass, config.get(CONF_EXPORT_RATE), divisor, config.get(CONF_FALLBACK_EXPORT_RATE),
+                       [b.export_rate for b in collected.buckets]),
     )
+    totals = summarise(collected.buckets, *fallbacks)
 
     arbitrage, note = _arbitrage(hass, config, collected.extras)
     has_battery = bool(config.get(CONF_CHARGE_ENERGY) or config.get(CONF_DISCHARGE_ENERGY))
@@ -247,6 +245,7 @@ async def build(hass: HomeAssistant, entry: ConfigEntry, period: str,
     tables = render_tables(
         totals, period, span,
         charge_peak=charge_peak, low=charge_low, end=dt_util.as_local(end), points=points,
+        sales=battery_sales(collected.buckets, *fallbacks),
         **shared,
     )
 
@@ -409,9 +408,8 @@ def _register_services(hass: HomeAssistant) -> None:
 
 def plain(message: str) -> str:
     """The message without its Telegram HTML, for anything that would show the
-    tags or the escaped "&amp;". A table follows its heading on the same line
-    in the HTML, so it is given a line of its own."""
-    return html.unescape(re.sub(r"</?[a-z]+>", "", re.sub(r"(?<!\n)<pre>", "\n", message)))
+    tags or the escaped "&amp;"."""
+    return html.unescape(re.sub(r"</?[a-z]+>", "", message))
 
 
 def tables_wanted(config: dict) -> bool:
@@ -496,12 +494,11 @@ def markdown(message: str) -> str:
     """The message as Markdown, for a notification in Home Assistant itself:
     bold and italic kept, every line break kept as one, and a table as a code
     block so its columns still line up."""
-    parts = re.split(r"<pre>(.*?)</pre>", message, flags=re.S)
+    parts = re.split(r"<code>(.*?)</code>", message, flags=re.S)
     out = []
     for i, part in enumerate(parts):
         if i % 2:
-            # On a line of its own, as a code fence must be.
-            out.append(f"  \n```\n{html.unescape(part)}\n```")
+            out.append(f"```\n{html.unescape(part)}\n```")
         else:
             text = re.sub(r"</?i>", "*", re.sub(r"</?b>", "**", part))
             out.append(html.unescape(text).replace("\n", "  \n"))

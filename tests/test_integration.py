@@ -174,7 +174,7 @@ async def test_send_button_telegram(hass: HomeAssistant, world) -> None:
     # Telegram's HTML mode needs & escaped; plain-text delivery unescapes it.
     assert "<b>SOLAR &amp; BATTERY REPORT</b>\nLast week (" in calls[0].data["message"]
     # Tables unless told otherwise
-    assert "<b>🧾 Bill</b><pre>Imported " in calls[0].data["message"]
+    assert "<b>🧾 Bill</b>\n<code>Imported " in calls[0].data["message"]
     assert "<b>Highlights</b>\n☀️ Solar: generated " in calls[0].data["message"]
     assert {tuple(c.data.get("entity_id", [])) for c in calls} >= {("notify.bot_chat",)}
     assert [c.data["chat_id"] for c in calls if "chat_id" in c.data] == [[CHAT]]
@@ -195,7 +195,7 @@ async def test_telegram_layout_from_the_device_page(hass: HomeAssistant, world) 
     await hass.services.async_call("button", "press",
                                    {"entity_id": "button.solar_battery_reports_send_daily_report_now"}, blocking=True)
     (call,) = world["telegram"]
-    assert "<pre>" not in call.data["message"]
+    assert "<code>" not in call.data["message"]
     assert "<b>🧾 Bill</b>\nBill total " in call.data["message"]
 
     # telegram_bot.send_message as a notify service is Telegram too.
@@ -207,7 +207,7 @@ async def test_telegram_layout_from_the_device_page(hass: HomeAssistant, world) 
     await hass.async_block_till_done()
     await hass.services.async_call("button", "press",
                                    {"entity_id": "button.solar_battery_reports_send_daily_report_now"}, blocking=True)
-    assert "<b>🧾 Bill</b><pre>Imported " in world["telegram"][-1].data["message"]
+    assert "<b>🧾 Bill</b>\n<code>Imported " in world["telegram"][-1].data["message"]
 
     # A phone gets the sentences whatever the layout says.
     hass.config_entries.async_update_entry(
@@ -224,8 +224,8 @@ async def test_generate_returns_both_layouts(hass: HomeAssistant, world) -> None
     await _setup(hass, delivery="none")
     result = await hass.services.async_call(DOMAIN, "generate", {"period": "daily"},
                                             blocking=True, return_response=True)
-    assert "<pre>" not in result["message"]
-    assert "<b>⚡ Energy (kWh)</b><pre>from\\to " in result["message_tables"]
+    assert "<code>" not in result["message"]
+    assert "<b>⚡ Energy (kWh)</b>\n<code>from\\to " in result["message_tables"]
 
 
 @pytest.mark.parametrize(("now", "heading"), [
@@ -578,7 +578,7 @@ async def test_preview_shows_the_report_without_sending_it(hass: HomeAssistant, 
     state = hass.states.get("sensor.solar_battery_reports_report_preview")
     assert state.state.startswith("Weekly: ")
     assert state.attributes["message"].startswith("SOLAR & BATTERY REPORT\nLast week (")
-    assert "<b>" not in state.attributes["message"] and "<pre>" not in state.attributes["message"]
+    assert "<b>" not in state.attributes["message"] and "<code>" not in state.attributes["message"]
 
     # A second preview replaces the first rather than piling up.
     await hass.services.async_call("button", "press",

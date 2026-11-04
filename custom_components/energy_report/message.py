@@ -25,8 +25,8 @@ worked out from the unrounded kWh and money, so it is the true average rather
 than the rounded kWh divided into the rounded pounds.
 
 render() is the report as sentences, which every messaging method can show.
-render_tables() is the same figures as aligned tables for Telegram, where a
-<pre> block is monospaced. Both take their numbers from _figures(), so a
+render_tables() is the same figures as aligned tables for Telegram, where
+<code> is monospaced. Both take their numbers from _figures(), so a
 figure reads the same in either.
 """
 
@@ -105,11 +105,11 @@ def _rate_text(currency: str, rate: float) -> str:
     return f"{currency}{_rate_number(currency, rate)}/kWh"
 
 
-TAGS = r"</?(?:b|i|pre)>"
+TAGS = r"</?(?:b|i|code)>"
 
 
 def _escape(message: str) -> str:
-    """Escape &, < and > everywhere but the <b>, <i> and <pre> tags, as
+    """Escape &, < and > everywhere but the <b>, <i> and <code> tags, as
     Telegram's HTML mode requires. The title and the earnings line both carry
     an "&"."""
     return "".join(part if re.fullmatch(TAGS, part) else html.escape(part, quote=False)
@@ -492,6 +492,24 @@ def _article(figure: str) -> str:
     return "an" if re.match(r"(8|1[18])(\D|$)", figure) else "a"
 
 
+# A time of day is named only if it carried at least this share of the
+# battery's export: a few minutes either side of the evening says nothing.
+SALES_SHARE = 0.1
+
+
+def _sold_when(currency: str, sales: list[tuple[str, float, float]] | None, t: Totals) -> str:
+    """' on average (30.2p in the evening, 17.9p overnight)', dearest first,
+    when the battery sold at two or more times of day at different prices;
+    otherwise nothing, the average saying it all."""
+    if not sales or t.battery_to_grid <= 0:
+        return ""
+    parts = sorted(((_rate_shown(currency, value / kwh), when) for when, kwh, value in sales
+                    if kwh >= SALES_SHARE * t.battery_to_grid), reverse=True)
+    if len(parts) < 2 or len({rate for rate, _ in parts}) < 2:
+        return ""
+    return " on average (" + ", ".join(f"{_rate_text(currency, rate)} {when}" for rate, when in parts) + ")"
+
+
 def _when(at: datetime, end: datetime | None) -> str:
     """'11:34', or '21:33 Mon' when it was not the day the period ended."""
     shown = f"{at:%H:%M}"
@@ -518,6 +536,7 @@ def render_tables(
     points: tuple[float, float, datetime | None] | None = None,
     points_per_pound: float | None = None,
     rolling: bool = False,
+    sales: list[tuple[str, float, float]] | None = None,
 ) -> str:
     """The report as tables, for Telegram: earnings and the bill, where the
     energy went, what the grid charged and paid, and a few highlights, the
@@ -526,7 +545,9 @@ def render_tables(
     The same figures as render(), from the same rounding, so the two never
     disagree. `charge_peak` and `low` are (level, first reached), the time
     None when the level was only there as the period began; `end` is when the
-    period ended, to name the day of a time that fell on an earlier one."""
+    period ended, to name the day of a time that fell on an earlier one.
+    `sales` is the battery's export by time of day, (when, kWh, value), for
+    what it sold at in the evening as against overnight."""
     t = totals
     f = _figures(t, has_battery)
 
@@ -603,19 +624,24 @@ def render_tables(
                   price(t.battery_export_value, t.battery_to_grid) if f.b2g > 0 else NONE_CELL,
                   cash(f.battery_sold)]]
 
-    # Each table straight after its heading: Telegram shows a <pre> as a block
-    # of its own, so a line break before one would leave an empty line.
+    # Each table as inline monospace, <code>, not a <pre> block: desktop
+    # Telegram puts a "copy" bar on every block, and a block also left an
+    # empty line under its heading.
     lines: list[str] = [
         f"<b>{title}</b>",
         f"{ROLLING_HEADING if rolling else HEADINGS.get(period, period)} ({span})",
         "",
-        f"<b>💷 Total earnings</b><pre>{sum_block(earnings, earnings_total)}</pre>",
+        f"<b>💷 Total earnings</b>",
+        f"<code>{sum_block(earnings, earnings_total)}</code>",
         "",
-        f"<b>🧾 Bill</b><pre>{sum_block(bill, bill_total)}</pre>",
+        f"<b>🧾 Bill</b>",
+        f"<code>{sum_block(bill, bill_total)}</code>",
         "",
-        f"<b>⚡ Energy (kWh)</b><pre>{_table(flows)}</pre>",
+        f"<b>⚡ Energy (kWh)</b>",
+        f"<code>{_table(flows)}</code>",
         "",
-        f"<b>💱 Grid prices</b><pre>{_table(grid, min_width=6)}</pre>",
+        f"<b>💱 Grid prices</b>",
+        f"<code>{_table(grid, min_width=6)}</code>",
     ]
 
     highlights = [f"☀️ Solar: generated {_kwh(f.solar)} kWh"
@@ -647,7 +673,7 @@ def render_tables(
         spread = sold_at - bought_at
         gap = _rate_text(currency, abs(spread))
         highlights.append(f"💹 Bought at {_rate_text(currency, bought_at)}, "
-                          f"sold at {_rate_text(currency, sold_at)}: "
+                          f"sold at {_rate_text(currency, sold_at)}{_sold_when(currency, sales, t)}: "
                           + (f"{_article(gap)} {gap} spread" if spread >= 0 else f"{gap} less than it cost"))
     if stored is not None and stored[1] > 0 and f.supplied > 0:
         lost = stored[1]

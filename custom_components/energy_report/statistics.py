@@ -136,6 +136,7 @@ async def collect(
                 **{name: (values.get(slot) or 0.0) for name, values in flows.items()},
                 import_rate=rate(import_rate, slot),
                 export_rate=rate(export_rate, slot),
+                start=dt_util.as_local(dt_util.utc_from_timestamp(slot)),
             )
             for slot in slots
         ],

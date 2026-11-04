@@ -4,8 +4,9 @@ A daily, weekly and monthly summary of where your solar, battery and grid energy
 actually went, and what it was worth, delivered through any Home Assistant
 notify service.
 
-In Telegram the figures come as tables, each one in a monospace block so the
-columns line up on a phone:
+In Telegram the figures come as tables, in monospace so the columns line up
+on a phone. They are inline monospace rather than code blocks, so desktop
+Telegram doesn't put a "copy" bar on each one:
 
 ```
 SOLAR & BATTERY REPORT
@@ -105,7 +106,13 @@ Telegram; other messaging methods get plain text.
   - 🔄 cycles: what the battery supplied, divided by its capacity
   - 🏠 how much of the house ran on solar and the battery
   - 💹 the average price the battery charged from the grid at, against the
-    average it exported at, when it did both
+    average it exported at, when it did both. When it sold at two or more
+    times of day at different prices, each is shown, dearest first: "sold at
+    27.0p on average (30.2p in the evening, 17.9p overnight)". The times of day
+    go by the clock: overnight 00:00-07:00, morning 07:00-12:00, afternoon
+    12:00-16:00, evening 16:00-19:00 (the peak on most time-of-use tariffs) and
+    night 19:00-24:00. One that carried under a tenth of the battery's export
+    is left out.
   - 🌡️ what was lost charging and discharging, and the round trip efficiency
     (with the battery capacity)
   - 🐙 the Octopoints balance and how it moved (weekly and monthly, and on a

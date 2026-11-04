@@ -42,7 +42,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime
 
-__all__ = ["Bucket", "Totals", "choose_fallback", "first_peak", "scheduled_price", "summarise"]
+__all__ = ["Bucket", "Totals", "battery_sales", "choose_fallback", "first_peak", "scheduled_price",
+           "summarise"]
 
 
 @dataclass(frozen=True)
@@ -61,6 +62,9 @@ class Bucket:
     discharged: float = 0.0
     import_rate: float | None = None
     export_rate: float | None = None
+    # When the bucket began, in local time, for splitting a period by time of
+    # day. None where it is not known.
+    start: datetime | None = None
 
 
 @dataclass
@@ -258,6 +262,32 @@ def first_peak(readings: list[tuple[datetime, float]],
             return peak, at
         previous = level
     return peak, None
+
+
+# Times of day for the battery's sales, by local clock hour. The evening is
+# 16:00 to 19:00, the peak on most time-of-use tariffs.
+TIMES_OF_DAY = (
+    ("overnight", 0, 7),
+    ("in the morning", 7, 12),
+    ("in the afternoon", 12, 16),
+    ("in the evening", 16, 19),
+    ("at night", 19, 24),
+)
+
+
+def battery_sales(buckets: list[Bucket], fallback_import_rate: float = 0.0,
+                  fallback_export_rate: float = 0.0) -> list[tuple[str, float, float]]:
+    """What the battery exported at each time of day, and what it earned:
+    (when, kWh, value), from the same split as summarise(), so the parts add up
+    to its battery_to_grid and battery_export_value. Buckets with no start are
+    left out; times of day with nothing sold are not listed."""
+    sales = []
+    for when, first, last in TIMES_OF_DAY:
+        part = summarise([b for b in buckets if b.start is not None and first <= b.start.hour < last],
+                         fallback_import_rate, fallback_export_rate)
+        if part.battery_to_grid > 0:
+            sales.append((when, part.battery_to_grid, part.battery_export_value))
+    return sales
 
 
 def first_low(readings: list[tuple[datetime, float]],

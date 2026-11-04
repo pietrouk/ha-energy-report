@@ -48,7 +48,7 @@ def check(label, got, want):
 
 
 def plain(message):
-    return html.unescape(re.sub(r"</?(?:b|i|pre)>", "", re.sub(r"(?<!\n)<pre>", "\n", message)))
+    return html.unescape(re.sub(r"</?(?:b|i|code)>", "", message))
 
 
 def section(text, heading):
@@ -632,31 +632,35 @@ nov3_tables = render_tables(nov3, "daily", "Mon 2 Nov 19:00 - Tue 3 Nov 19:00", 
 check("a real day, as tables", nov3_tables, """<b>SOLAR &amp; BATTERY REPORT</b>
 Last 24 hours (Mon 2 Nov 19:00 - Tue 3 Nov 19:00)
 
-<b>💷 Total earnings</b><pre>House load saved  +£2.08
+<b>💷 Total earnings</b>
+<code>House load saved  +£2.08
 Exported          +£3.92
 Battery charging  -£1.88
                   ──────
-Earnings           £4.12</pre>
+Earnings           £4.12</code>
 
-<b>🧾 Bill</b><pre>Imported           £2.27
+<b>🧾 Bill</b>
+<code>Imported           £2.27
 Exported          -£3.92
 Standing charge    £0.42
                   ──────
-Bill              -£1.23</pre>
+Bill              -£1.23</code>
 
-<b>⚡ Energy (kWh)</b><pre>from\\to  House  Batt  Grid Total
+<b>⚡ Energy (kWh)</b>
+<code>from\\to  House  Batt  Grid Total
 Solar      1.7   1.4   0.3   3.4
 Battery    4.7     –  14.0  18.7
 Grid       2.3  19.8     –  22.1
-Total      8.7  21.2  14.3</pre>
+Total      8.7  21.2  14.3</code>
 
-<b>💱 Grid prices</b><pre>Grid         kWh  p/kWh      £
+<b>💱 Grid prices</b>
+<code>Grid         kWh  p/kWh      £
 Import      22.1   10.3   2.27
  house       2.3   16.8   0.39
  battery    19.8    9.5   1.88
 Export      14.3   27.4   3.92
  solar       0.3   19.5   0.06
- battery    14.0   27.6   3.86</pre>
+ battery    14.0   27.6   3.86</code>
 
 <b>Highlights</b>
 ☀️ Solar: generated 3.4 kWh with a power peak of 2.5 kW at 10:40
@@ -665,7 +669,7 @@ Export      14.3   27.4   3.92
 🏠 74% of the house ran on solar &amp; battery
 💹 Bought at 9.5p, sold at 27.6p: an 18.1p spread
 🌡️ About 2.8 kWh lost in charging and discharging (round trip about 87%)""")
-widest = max(len(line) for block in re.findall(r"<pre>(.*?)</pre>", nov3_tables, re.S)
+widest = max(len(line) for block in re.findall(r"<code>(.*?)</code>", nov3_tables, re.S)
              for line in html.unescape(block).splitlines())
 check("every table fits a phone, 32 characters", widest <= 32, True)
 check("the sentences say the same", ("= £4.12" in render(nov3, "daily", "x", standing=0.42),
@@ -723,9 +727,42 @@ check("a day's points are the last 24 hours'",
       section(plain(render_tables(t, "daily", "x", points=(1396.0, 120.0, None), points_per_pound=800)),
               "Highlights").splitlines()[-1],
       "🐙 Octopoints: 1,396 points, worth £1.75, +120 in the last 24 hours")
-check("each table straight after its heading, no empty line",
-      [h for h in ("💷 Total earnings", "🧾 Bill", "⚡ Energy (kWh)", "💱 Grid prices")
-       if f"{h}</b><pre>" not in nov3_tables], [])
+check("each table inline monospace on the line after its heading, never a <pre> block",
+      ([h for h in ("💷 Total earnings", "🧾 Bill", "⚡ Energy (kWh)", "💱 Grid prices")
+        if f"{h}</b>\n<code>" not in nov3_tables], "<pre>" in nov3_tables), ([], False))
+
+print("\n== what the battery sold at, by time of day")
+battery_sales = _report.battery_sales
+
+
+def at_hour(hour, **energy):
+    return Bucket(start=datetime(2026, 11, 3, hour, 5), import_rate=0.094, **energy)
+
+
+day = [at_hour(17, discharged=10.0, exported=10.0, export_rate=0.302),
+       at_hour(19, discharged=0.4, exported=0.4, export_rate=0.233),
+       at_hour(3, discharged=3.7, exported=3.7, export_rate=0.179),
+       at_hour(2, imported=19.7, charged=19.7)]
+sales = battery_sales(day)
+check("each time of day that sold, in clock order",
+      [(when, round(kwh, 1), round(value, 3)) for when, kwh, value in sales],
+      [("overnight", 3.7, 0.662), ("in the evening", 10.0, 3.02), ("at night", 0.4, 0.093)])
+whole = summarise(day)
+check("the parts are the whole", (round(sum(k for _, k, _ in sales), 6), round(sum(v for _, _, v in sales), 6)),
+      (round(whole.battery_to_grid, 6), round(whole.battery_export_value, 6)))
+spread_line = [line for line in plain(render_tables(whole, "daily", "x", sales=sales)).splitlines()
+               if line.startswith("💹")][0]
+check("dearest first; under a tenth of the export left out", spread_line,
+      "💹 Bought at 9.4p, sold at 26.8p on average (30.2p in the evening, 17.9p overnight): a 17.4p spread")
+check("one time of day: the average alone",
+      "on average" in render_tables(whole, "daily", "x", sales=[("in the evening", whole.battery_to_grid,
+                                                                  whole.battery_export_value)]), False)
+check("two at the same price: the average alone",
+      "on average" in render_tables(whole, "daily", "x", sales=[("in the evening", 7.0, 2.1),
+                                                                ("overnight", 7.1, 2.13)]), False)
+check("no times of day: the average alone", "on average" in render_tables(whole, "daily", "x"), False)
+check("buckets without a time are left out", battery_sales([Bucket(discharged=1.0, exported=1.0, export_rate=0.2)]),
+      [])
 
 print("\n== the lowest level")
 check("lowest, first reached", first_low([(on(28, 0, 0), 40.0), (on(28, 2, 0), 5.0), (on(28, 3, 0), 9.0),

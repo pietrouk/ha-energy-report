@@ -9,45 +9,51 @@ columns line up on a phone:
 
 ```
 SOLAR & BATTERY REPORT
-Last 24 hours (Fri 25 Sep 15:10 - Sat 26 Sep 15:10)
+Last 24 hours (Mon 2 Nov 19:00 - Tue 3 Nov 19:00)
 
 💷 Total earnings
-House load saved  +£1.86
-Exported          +£0.55
-Battery charging  -£0.14
+House load saved  +£2.08
+  6.4 kWh at 32.5p
+Exported          +£3.92
+Battery charging  -£1.88
                   ──────
-Earnings           £2.27
+Earnings           £4.12
+  vs £3.91, 7-day average
 
 🧾 Bill
-Imported           £0.21
-Exported          -£0.55
+Imported           £2.27
+  22.1 kWh at 10.3p
+Exported          -£3.92
+  14.3 kWh at 27.4p
 Standing charge    £0.42
                   ──────
-Bill               £0.08
+Bill              -£1.23
+  vs -£0.87, 7-day average
 
 ⚡ Energy
 kWh    House  Batt  Grid Total
-Solar    4.0   7.7   1.8  13.5
-Batt     3.3     –   2.9   6.2
-Grid     0.4   0.8     –   1.2
-Total    7.7   8.5   4.7
+Solar    1.7   1.4   0.3   3.4
+Batt     4.7     –  14.0  18.7
+Grid     2.3  19.8     –  22.1
+Total    8.7  21.2  14.3
+
+☀️ Solar: generated 3.4 kWh (vs 4.6 kWh, 7-day average) with a power peak of 2.5 kW at 10:40
+🔋 Battery: charged 21.2 kWh, discharged 18.7 kWh, full at 11:34
+🔄 1.2 cycles (18.7 kWh out of a 15 kWh battery)
+🌡️ About 2.8 kWh lost in charging and discharging (round trip about 87%)
+🏠 House load: 8.7 kWh (vs 9.1 kWh, 7-day average)
+🏠 74% of the house ran on solar & battery
 
 💱 Grid prices
 Grid         kWh  p/kWh      £
-Import       1.2   16.6   0.21
- house       0.4   16.8   0.07
- battery     0.8   16.5   0.14
-Export       4.7   12.0   0.55
- solar       1.8   12.0   0.21
- battery     2.9   12.0   0.34
+Import      22.1   10.3   2.27
+ house       2.3   16.8   0.39
+ battery    19.8    9.5   1.88
+Export      14.3   27.4   3.92
+ solar       0.3   19.5   0.06
+ battery    14.0   27.6   3.86
 
-Highlights
-☀️ Solar: generated 13.5 kWh with a power peak of 3.0 kW at 11:45
-🔋 Battery 94% → 100%, full at 13:37
-🔄 0.4 cycles (6.2 kWh out of a 15 kWh battery)
-🏠 95% of the house ran on solar & battery
-💹 Bought at 16.5p, sold at 12.0p: 4.5p less than it cost
-🌡️ About 1.4 kWh lost in charging and discharging (round trip about 82%)
+💹 Bought at 9.5p, sold at 27.6p on average (30.2p in the evening, 17.9p overnight): an 18.1p spread (vs 17.2p, 7-day average)
 ```
 
 Every other messaging method gets the same figures as sentences, and so does
@@ -91,19 +97,25 @@ Telegram; other messaging methods get plain text.
 
 ### Reading the tables
 
+- **Total earnings** and **Bill**: under a money line, its energy and average
+  price (the house load saved, the import and the export); under each total,
+  the same total for the stretch before, to compare with.
 - **Energy**: each row is where energy came from, each column where it went.
   Solar's row is what the panels made and where it ended up; the bottom row is
   what the house used, what the battery took in and what was exported. A dash
   is a flow that can't happen: the battery doesn't charge itself.
+- Under the Energy table, each line shown only when there's something to say:
+  - ☀️ what solar generated, and its power peak (with a solar power sensor)
+  - 🔋 what the battery took in and gave out, and when it was full or reached
+    its highest (daily, with a battery level sensor)
+  - 🔄 cycles: what the battery supplied, divided by its capacity
+  - 🌡️ what was lost charging and discharging, and the round trip efficiency
+    (with the battery capacity and a battery level sensor)
+  - 🏠 the house load, and how much of it ran on solar and the battery
 - **Grid prices**: each import and export at its own average price, split by
   where it went or came from. The amounts add up to the Bill's lines and to
   the earnings, to the penny.
-- **Highlights**, each shown only when there's something to say:
-  - ☀️ what solar generated, and its power peak (with a solar power sensor)
-  - 🔋 the battery level at the start and end, the lowest it fell to and when
-    it was full (daily, with a battery level sensor)
-  - 🔄 cycles: what the battery supplied, divided by its capacity
-  - 🏠 how much of the house ran on solar and the battery
+- Under the Grid prices table:
   - 💹 the average price the battery charged from the grid at, against the
     average it exported at, when it did both. When it sold at two or more
     times of day at different prices, each is shown, dearest first: "sold at
@@ -112,10 +124,22 @@ Telegram; other messaging methods get plain text.
     12:00-16:00, evening 16:00-19:00 (the peak on most time-of-use tariffs) and
     night 19:00-24:00. One that carried under a tenth of the battery's export
     is left out.
-  - 🌡️ what was lost charging and discharging, and the round trip efficiency
-    (with the battery capacity)
   - 🐙 the Octopoints balance and how it moved (weekly and monthly, and on a
     day when some arrived)
+
+**Comparisons** ("vs …") sit beside the earnings, the bill, solar, the house
+load and the spread:
+
+- a daily report against the **average day of the 7 before it**;
+- a weekly report against the **previous week**;
+- a monthly report against the **previous calendar month**, named, or, for 30
+  days asked for mid-month, the **prior 30 days**.
+
+The money and kWh of a daily comparison are averaged over the days the
+statistics cover, so it starts working a day after installing. A weekly or
+monthly comparison needs at least 95% of the period before; until then it's
+left out rather than set against half a week. The spread compared is the whole
+stretch's, and a daily comparison's standing charge is a day's.
 
 The Energy and Grid prices tables are both 30 characters wide, the width Telegram
 on a phone shows in portrait, so their blocks line up.
@@ -468,8 +492,10 @@ it); the totals `solar`, `house`, `imported`,
 `peak_watts`, `peak_at`, `battery_peak_percent`, `battery_peak_at`,
 `battery_low_percent`, `battery_low_at` (daily only; a time is null when the
 battery was already at that level as the period began),
-`estimated`, `buckets` and `unpriced_buckets`. That's enough to build your own
-card or message instead.
+`estimated`, `buckets` and `unpriced_buckets`; and `previous`, the comparison
+the tables show (`label`, `total_earnings`, `bill_total`, `solar`, `house`,
+`spread`), per day for a daily report, or null when there isn't enough of the
+period before. That's enough to build your own card or message instead.
 
 ### `energy_report.send`
 

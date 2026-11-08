@@ -36,6 +36,8 @@ scheduled_price = _report.scheduled_price
 _window = importlib.import_module("energy_report.window")
 span_label, window_for, days_between = _window.span_label, _window.window_for, _window.days_between
 is_rolling = _window.is_rolling
+previous_window = _window.previous_window
+Comparison, comparison = _message.Comparison, _message.comparison
 
 failures = 0
 
@@ -49,6 +51,11 @@ def check(label, got, want):
 
 def plain(message):
     return html.unescape(re.sub(r"</?(?:b|i|pre)>", "", re.sub(r"(?<!\n)<pre>", "\n", message)))
+
+
+def line_with(text, start):
+    """The message's line beginning with `start`, or None."""
+    return next((line for line in text.splitlines() if line.startswith(start)), None)
 
 
 def section(text, heading):
@@ -628,27 +635,41 @@ NOV3_END = datetime(2026, 11, 3, 19, 0)
 nov3_tables = render_tables(nov3, "daily", "Mon 2 Nov 19:00 - Tue 3 Nov 19:00", standing=0.42,
                             peak="2.5 kW at 10:40", charge_peak=(100.0, datetime(2026, 11, 3, 11, 34)),
                             low=(2.0, datetime(2026, 11, 2, 21, 33)), end=NOV3_END,
-                            levels=(18.0, 16.0), capacity=15)
+                            levels=(18.0, 16.0), capacity=15,
+                            previous=Comparison(", 7-day average", earnings=3.9071, bill=-0.8749, solar=4.64,
+                                                house=9.06, spread=0.1715))
 check("a real day, as tables", nov3_tables, """<b>SOLAR &amp; BATTERY REPORT</b>
 Last 24 hours (Mon 2 Nov 19:00 - Tue 3 Nov 19:00)
 
 <b>💷 Total earnings</b><pre>House load saved  +£2.08
+  6.4 kWh at 32.5p
 Exported          +£3.92
 Battery charging  -£1.88
                   ──────
-Earnings           £4.12</pre>
+Earnings           £4.12
+  vs £3.91, 7-day average</pre>
 
 <b>🧾 Bill</b><pre>Imported           £2.27
+  22.1 kWh at 10.3p
 Exported          -£3.92
+  14.3 kWh at 27.4p
 Standing charge    £0.42
                   ──────
-Bill              -£1.23</pre>
+Bill              -£1.23
+  vs -£0.87, 7-day average</pre>
 
 <b>⚡ Energy</b><pre>kWh    House  Batt  Grid Total
 Solar    1.7   1.4   0.3   3.4
 Batt     4.7     –  14.0  18.7
 Grid     2.3  19.8     –  22.1
 Total    8.7  21.2  14.3</pre>
+
+☀️ Solar: generated 3.4 kWh (vs 4.6 kWh, 7-day average) with a power peak of 2.5 kW at 10:40
+🔋 Battery: charged 21.2 kWh, discharged 18.7 kWh, full at 11:34
+🔄 1.2 cycles (18.7 kWh out of a 15 kWh battery)
+🌡️ About 2.8 kWh lost in charging and discharging (round trip about 87%)
+🏠 House load: 8.7 kWh (vs 9.1 kWh, 7-day average)
+🏠 74% of the house ran on solar &amp; battery
 
 <b>💱 Grid prices</b><pre>Grid         kWh  p/kWh      £
 Import      22.1   10.3   2.27
@@ -658,13 +679,7 @@ Export      14.3   27.4   3.92
  solar       0.3   19.5   0.06
  battery    14.0   27.6   3.86</pre>
 
-<b>Highlights</b>
-☀️ Solar: generated 3.4 kWh with a power peak of 2.5 kW at 10:40
-🔋 Battery 18% → 16%, lowest 2% at 21:33 Mon, full at 11:34
-🔄 1.2 cycles (18.7 kWh out of a 15 kWh battery)
-🏠 74% of the house ran on solar &amp; battery
-💹 Bought at 9.5p, sold at 27.6p: an 18.1p spread
-🌡️ About 2.8 kWh lost in charging and discharging (round trip about 87%)""")
+💹 Bought at 9.5p, sold at 27.6p: an 18.1p spread (vs 17.2p, 7-day average)""")
 widest = max(len(line) for block in re.findall(r"<pre>(.*?)</pre>", nov3_tables, re.S)
              for line in html.unescape(block).splitlines())
 check("every table fits a phone, 30 characters", widest <= _message.TABLE_WIDTH, True)
@@ -677,17 +692,22 @@ check("the sentences say the same", ("= £4.12" in render(nov3, "daily", "x", st
 
 plain_tables = plain(render_tables(nov3, "daily", "x"))
 check("no capacity: no cycles and no losses", ("🔄" in plain_tables, "🌡️" in plain_tables), (False, False))
-check("no levels: no battery highlight", "🔋" in plain_tables, False)
+check("no peak: what the battery took in and gave out", line_with(plain_tables, "🔋"),
+      "🔋 Battery: charged 21.2 kWh, discharged 18.7 kWh")
+check("nothing to compare with: no 'vs'", " vs " in plain_tables, False)
+check("each money line's kWh and price on a line under it",
+      [line for line in plain_tables.splitlines() if line.startswith("  ") and line.strip()[0].isdigit()],
+      ["  6.4 kWh at 32.5p", "  22.1 kWh at 10.3p", "  14.3 kWh at 27.4p"])
 check("no peak: generation alone", "\n☀️ Solar: generated 3.4 kWh\n" in plain_tables, True)
 check("no standing charge: none in the bill", "Standing" in plain_tables, False)
 check("a peak short of full says so",
-      section(plain(render_tables(nov3, "daily", "x", charge_peak=(87.5, datetime(2026, 11, 3, 13, 5)),
-                                  end=NOV3_END)), "Highlights").splitlines()[2],
-      "🔋 Battery peak 87.5% at 13:05")
-check("a low and a peak only there as the period began are left to the start level",
-      section(plain(render_tables(nov3, "daily", "x", levels=(100.0, 40.0), charge_peak=(100.0, None),
-                                  low=(40.0, None), end=NOV3_END)), "Highlights").splitlines()[2],
-      "🔋 Battery 100% → 40%")
+      line_with(plain(render_tables(nov3, "daily", "x", charge_peak=(87.5, datetime(2026, 11, 3, 13, 5)),
+                                    end=NOV3_END)), "🔋"),
+      "🔋 Battery: charged 21.2 kWh, discharged 18.7 kWh, peak 87.5% at 13:05")
+check("a peak only there as the period began is left out",
+      line_with(plain(render_tables(nov3, "daily", "x", levels=(100.0, 40.0), charge_peak=(100.0, None),
+                                    low=(40.0, None), end=NOV3_END)), "🔋"),
+      "🔋 Battery: charged 21.2 kWh, discharged 18.7 kWh")
 check("a weekly peak names its day",
       "with a power peak of 3.8 kW on Thu 17 Sep\n" in plain(render_tables(nov3, "weekly", "x",
                                                                            peak="3.8 kW on Thu 17 Sep")), True)
@@ -716,19 +736,58 @@ weekly_points = plain(render_tables(t, "weekly", "x", arbitrage=0.32, points=(13
                                    points_per_pound=800))
 check("Octopoints: a highlight, not a section of their own",
       ("<b>🐙" in render_tables(t, "weekly", "x", points=(1396.0, 352.0, None)),
-       section(weekly_points, "Highlights").splitlines()[-1]),
+       line_with(weekly_points, "🐙")),
       (False, "🐙 Octopoints: 1,396 points, worth £1.75, +352 this week"))
-check("arbitrage comes after the highlights", weekly_points.index("Highlights") < weekly_points.index("📈"), True)
+check("arbitrage comes after the points", weekly_points.index("🐙") < weekly_points.index("📈"), True)
 check("a day shows the points only when some were earned",
       ["🐙" in render_tables(t, "daily", "x", points=(1396.0, change, None)) for change in (0.0, 0.4, -50.0, 120.0)],
       [False, False, False, True])
 check("a day's points are the last 24 hours'",
-      section(plain(render_tables(t, "daily", "x", points=(1396.0, 120.0, None), points_per_pound=800)),
-              "Highlights").splitlines()[-1],
+      line_with(plain(render_tables(t, "daily", "x", points=(1396.0, 120.0, None), points_per_pound=800)),
+                "🐙"),
       "🐙 Octopoints: 1,396 points, worth £1.75, +120 in the last 24 hours")
 check("each table a block straight after its heading, no empty line",
       [h for h in ("💷 Total earnings", "🧾 Bill", "⚡ Energy", "💱 Grid prices")
        if f"{h}</b><pre>" not in nov3_tables], [])
+
+print("\n== the stretch before, to compare with")
+week = comparison(nov3, True, ", 7-day average", per=7.0, standing=0.42)
+check("a day is set against the average day", (round(week.earnings, 4), round(week.solar, 4), round(week.house, 4)),
+      (round(4.12 / 7, 4), round(3.4 / 7, 4), round(8.7 / 7, 4)))
+check("the bill's standing charge is a day's, not divided again", round(week.bill, 4),
+      round((2.27 - 3.92) / 7 + 0.42, 4))
+check("the spread is the period's own, not divided", round(week.spread, 4), round(0.276 - 0.095, 4))
+check("no grid charging: no spread to compare", comparison(nov3, False, "x").spread, None)
+no_spread = plain(render_tables(nov3, "daily", "x", previous=Comparison(", 7-day average", 1.0, 1.0, 1.0, 1.0)))
+check("a stretch with no spread leaves the spread alone", line_with(no_spread, "💹"),
+      "💹 Bought at 9.5p, sold at 27.6p: an 18.1p spread")
+month = Totals(**{k: v * 31 if isinstance(v, float) else v for k, v in nov3.__dict__.items()})
+big = render_tables(month, "monthly", "October 2026", standing=13.02,
+                    previous=Comparison(" prior 30 days", earnings=-1234.56, bill=-1234.56, solar=99.0,
+                                        house=270.0, spread=-0.012))
+check("a month of big numbers still fits a phone",
+      max(len(line) for block in re.findall(r"<pre>(.*?)</pre>", big, re.S)
+          for line in html.unescape(block).splitlines()) <= _message.TABLE_WIDTH, True)
+check("a negative spread before", line_with(plain(big), "💹").endswith("(vs -1.2p prior 30 days)"), True)
+
+london = ZoneInfo("Europe/London")
+check("daily: the 7 days before, by the clock",
+      [d.isoformat() for d in previous_window("daily", datetime(2026, 11, 2, 19, tzinfo=london),
+                                              datetime(2026, 11, 3, 19, tzinfo=london))[:2]],
+      ["2026-10-26T19:00:00+00:00", "2026-11-02T19:00:00+00:00"])
+check("daily: across the clocks going back, still 19:00",
+      previous_window("daily", datetime(2026, 10, 27, 19, tzinfo=london),
+                      datetime(2026, 10, 28, 19, tzinfo=london))[0].isoformat(), "2026-10-20T19:00:00+01:00")
+check("weekly: the week before",
+      [d.date().isoformat() for d in previous_window("weekly", datetime(2026, 11, 2), datetime(2026, 11, 9))[:2]]
+      + [previous_window("weekly", datetime(2026, 11, 2), datetime(2026, 11, 9))[2]],
+      ["2026-10-26", "2026-11-02", " previous week"])
+check("monthly: the calendar month before, named",
+      [str(x) for x in previous_window("monthly", datetime(2026, 3, 1), datetime(2026, 4, 1))],
+      ["2026-02-01 00:00:00", "2026-03-01 00:00:00", " in February"])
+check("monthly over 30 days: the 30 before",
+      [str(x) for x in previous_window("monthly", datetime(2026, 10, 9), datetime(2026, 11, 8))],
+      ["2026-09-09 00:00:00", "2026-10-09 00:00:00", " prior 30 days"])
 
 print("\n== what the battery sold at, by time of day")
 battery_sales = _report.battery_sales
@@ -780,12 +839,16 @@ def tables_agree(label, totals, has_battery, **kw):
     def amount(cell):
         return float(cell.replace("£", ""))
 
-    earn = section(tab, "💷 Total earnings").splitlines()[1:]
+    def amounts(heading):
+        """A sum block's lines, without the notes under them."""
+        return [l for l in section(tab, heading).splitlines()[1:] if not re.match(r"  \S", l)]
+
+    earn = amounts("💷 Total earnings")
     parts = [amount(line.split()[-1]) for line in earn[:-2]]
     check(f"{label}: earnings add up", round(sum(parts), 2), amount(earn[-1].split()[-1]))
     check(f"{label}: and match the sentences", amount(earn[-1].split()[-1]),
           amount(re.search(r"= " + num, text).group(1)))
-    bill = section(tab, "🧾 Bill").splitlines()[1:]
+    bill = amounts("🧾 Bill")
     check(f"{label}: the bill adds up", round(sum(amount(l.split()[-1]) for l in bill[:-2]), 2),
           amount(bill[-1].split()[-1]))
     check(f"{label}: and matches the sentences", amount(bill[-1].split()[-1]),

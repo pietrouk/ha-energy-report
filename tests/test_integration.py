@@ -175,7 +175,7 @@ async def test_send_button_telegram(hass: HomeAssistant, world) -> None:
     assert "<b>SOLAR &amp; BATTERY REPORT</b>\nLast week (" in calls[0].data["message"]
     # Tables unless told otherwise
     assert "<b>🧾 Bill</b><pre>Imported " in calls[0].data["message"]
-    assert "<b>Highlights</b>\n☀️ Solar: generated " in calls[0].data["message"]
+    assert "</pre>\n\n☀️ Solar: generated " in calls[0].data["message"]
     assert {tuple(c.data.get("entity_id", [])) for c in calls} >= {("notify.bot_chat",)}
     assert [c.data["chat_id"] for c in calls if "chat_id" in c.data] == [[CHAT]]
 
@@ -760,3 +760,52 @@ async def test_rate_recorded_from_the_schedule_on_the_minute(hass: HomeAssistant
     async_fire_time_changed(hass, dt_util.utcnow())
     await hass.async_block_till_done()
     assert hass.states.get(recorded).state == "0.3396"
+
+
+async def test_comparison_with_the_week_before(hass: HomeAssistant, world) -> None:
+    """A weekly report sets its figures beside the week before, from hourly
+    statistics - and leaves the comparison out when that week is mostly missing."""
+    from homeassistant.components.recorder.models import StatisticMeanType
+    from homeassistant.components.recorder.statistics import async_import_statistics
+    from pytest_homeassistant_custom_component.components.recorder.common import (
+        async_wait_recording_done,
+    )
+
+    week = dt_util.start_of_local_day() - timedelta(days=dt_util.now().weekday() + 7)
+    first = week - timedelta(days=10)
+    # 0.2 kWh of solar every hour; the grid 1 kWh an hour the week before, 2 this week.
+    sums = {"sensor.pv_total": 0.0, "sensor.grid_in": 0.0}
+    rows = {entity_id: [] for entity_id in sums}
+    hour = first
+    while hour < week + timedelta(days=7):
+        sums["sensor.pv_total"] += 0.2
+        sums["sensor.grid_in"] += 2.0 if hour >= week else 1.0
+        for entity_id, total in sums.items():
+            rows[entity_id].append({"start": hour, "state": total, "sum": total})
+        hour += timedelta(hours=1)
+    for entity_id, entity_rows in rows.items():
+        async_import_statistics(hass, {
+            "mean_type": StatisticMeanType.NONE, "has_sum": True, "name": None, "source": "recorder",
+            "statistic_id": entity_id, "unit_class": "energy", "unit_of_measurement": "kWh",
+        }, entity_rows)
+    await async_wait_recording_done(hass)
+
+    await _setup(hass, delivery="none")
+    result = await hass.services.async_call(
+        DOMAIN, "generate", {"period": "weekly", "start": week, "end": week + timedelta(days=7)},
+        blocking=True, return_response=True)
+    before = result["previous"]
+    assert before["label"] == "previous week"
+    assert round(before["solar"], 1) == round(0.2 * 168, 1)
+    assert round(before["house"], 1) == round(1.2 * 168, 1)
+    tables = result["message_tables"]
+    assert f"\n  vs £{0.2 * 168 * 0.2547:.2f} previous week</pre>" in tables
+    assert f"☀️ Solar: generated 33.6 kWh (vs {0.2 * 168:.1f} kWh previous week)" in tables
+    assert f"🏠 House load: 369.6 kWh (vs {1.2 * 168:.1f} kWh previous week)" in tables
+
+    # The week before that has only its last three days: no comparison.
+    earlier = await hass.services.async_call(
+        DOMAIN, "generate", {"period": "weekly", "start": week - timedelta(days=7), "end": week},
+        blocking=True, return_response=True)
+    assert earlier["previous"] is None
+    assert " vs " not in earlier["message_tables"]

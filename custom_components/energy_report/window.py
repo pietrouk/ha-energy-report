@@ -11,10 +11,13 @@ from datetime import datetime, timedelta
 
 from .const import PERIOD_DAILY, PERIOD_MONTHLY, PERIOD_WEEKLY
 
-__all__ = ["days_between", "is_rolling", "window_for", "span_label", "ROLLING_DAYS"]
+__all__ = ["days_between", "is_rolling", "previous_window", "window_for", "span_label", "ROLLING_DAYS",
+           "COMPARE_DAYS"]
 
 # How far back a monthly report asked for on any day but the 1st looks.
 ROLLING_DAYS = 30
+# How many days before it a daily report is compared with, as an average day.
+COMPARE_DAYS = 7
 
 
 def window_for(period: str, now: datetime) -> tuple[datetime, datetime]:
@@ -59,6 +62,30 @@ def window_for(period: str, now: datetime) -> tuple[datetime, datetime]:
         first_of_last = (midnight - timedelta(days=1)).replace(day=1)
         return first_of_last, midnight
 
+    raise ValueError(f"unknown period: {period}")
+
+
+def previous_window(period: str, start: datetime, end: datetime) -> tuple[datetime, datetime, str]:
+    """The stretch a report is compared with, and how the comparison names it:
+    (start, end, label), the label read after the figure - "vs £3.91, 7-day
+    average".
+
+    daily    the 7 days before it, which the caller averages to a day
+    weekly   the week before
+    monthly  the calendar month before; for a run of 30 days, the 30 before
+             ("prior", to fit a phone beside a four-figure sum)
+
+    Each ends where the report begins, stepped back in whole local days so a
+    clock change does not shift it by an hour."""
+    if period == PERIOD_DAILY:
+        return start - timedelta(days=COMPARE_DAYS), start, f", {COMPARE_DAYS}-day average"
+    if period == PERIOD_WEEKLY:
+        return start - timedelta(days=7), start, " previous week"
+    if period == PERIOD_MONTHLY:
+        if is_rolling(period, start, end):
+            return start - timedelta(days=ROLLING_DAYS), start, f" prior {ROLLING_DAYS} days"
+        first = (start - timedelta(days=1)).replace(day=1)
+        return first, start, f" in {first.strftime('%B')}"
     raise ValueError(f"unknown period: {period}")
 
 

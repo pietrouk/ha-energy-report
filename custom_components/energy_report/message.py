@@ -39,7 +39,7 @@ from datetime import datetime, timedelta
 
 from .report import Totals
 
-__all__ = ["charge_text", "peak_text", "render", "render_tables"]
+__all__ = ["Comparison", "charge_text", "comparison", "peak_text", "render", "render_tables"]
 
 # How a weekly or monthly report names its own period.
 PERIOD_NAMES = {"daily": "in the last 24 hours", "weekly": "this week", "monthly": "this month"}
@@ -254,6 +254,53 @@ def _stored(f: _Figures, levels: tuple[float, float] | None,
     start_level, end_level = levels
     banked = min(_r((end_level - start_level) / 100.0 * capacity), f.net)
     return banked, _r(f.net - banked)
+
+
+@dataclass(frozen=True)
+class Comparison:
+    """The headline figures over the stretch before the report, to set beside
+    its own: the average day of the 7 before a daily report, the week before a
+    weekly one, the month (or the 30 days) before a monthly one.
+
+    `label` follows the figure: "vs £3.91, 7-day average", "vs £27.10
+    previous week", "vs £110.20 in October"."""
+
+    label: str
+    earnings: float
+    bill: float
+    solar: float
+    house: float
+    # The battery's sell-minus-buy price per kWh, None when it did not both
+    # charge from the grid and export.
+    spread: float | None = None
+
+
+def _spread(currency: str, t: Totals) -> tuple[float, float, float] | None:
+    """(bought at, sold at, spread) per kWh for the battery, from the prices as
+    printed so the spread is their difference; None unless it both charged
+    from the grid and sold to it."""
+    if _r(t.grid_to_battery) <= 0 or _r(t.battery_to_grid) <= 0:
+        return None
+    bought_at = _rate_shown(currency, t.battery_cost / t.grid_to_battery)
+    sold_at = _rate_shown(currency, t.battery_export_value / t.battery_to_grid)
+    return bought_at, sold_at, sold_at - bought_at
+
+
+def comparison(totals: Totals, has_battery: bool, label: str, per: float = 1.0,
+               standing: float | None = None, currency: str = "£") -> Comparison:
+    """The Comparison for a stretch's Totals. Energy and money are divided by
+    `per` - the days covered, for a daily report's average day - and
+    `standing` is the standing charge for what is compared, already divided."""
+    f = _figures(totals, has_battery)
+    spread = _spread(currency, totals) if has_battery else None
+    return Comparison(
+        label=label,
+        earnings=f.total / per,
+        bill=(f.bought - f.exported) / per + (standing or 0.0),
+        solar=f.solar / per,
+        house=f.house / per,
+        spread=spread[2] if spread else None,
+    )
 
 
 def _points_text(points, points_per_pound, money, period: str, rolling: bool) -> str:
@@ -529,6 +576,11 @@ def _when(at: datetime, end: datetime | None) -> str:
     return shown
 
 
+def _vs(shown: str, previous: Comparison | None) -> str:
+    """'vs £3.91, 7-day average', or nothing without a comparison."""
+    return f"vs {shown}{previous.label}" if previous is not None else ""
+
+
 def render_tables(
     totals: Totals,
     period: str,
@@ -548,48 +600,66 @@ def render_tables(
     points_per_pound: float | None = None,
     rolling: bool = False,
     sales: list[tuple[str, float, float]] | None = None,
+    previous: Comparison | None = None,
 ) -> str:
     """The report as tables, for Telegram: earnings and the bill, where the
-    energy went, what the grid charged and paid, and a few highlights, the
-    Octopoints among them.
+    energy went with the solar, battery and house lines under it, then what
+    the grid charged and paid with the battery's spread under that.
 
     The same figures as render(), from the same rounding, so the two never
-    disagree. `charge_peak` and `low` are (level, first reached), the time
-    None when the level was only there as the period began; `end` is when the
-    period ended, to name the day of a time that fell on an earlier one.
-    `sales` is the battery's export by time of day, (when, kWh, value), for
-    what it sold at in the evening as against overnight."""
+    disagree. `charge_peak` is (level, first reached), the time None when the
+    level was only there as the period began; `end` is when the period ended,
+    to name the day of a time that fell on an earlier one. `sales` is the
+    battery's export by time of day, (when, kWh, value), for what it sold at in
+    the evening as against overnight. `previous` puts the stretch before
+    beside the earnings, the bill, solar, the house load and the spread.
+
+    `low` is accepted for the service response's sake and no longer shown."""
     t = totals
     f = _figures(t, has_battery)
 
     def money(amount: float) -> str:
         return _money(currency, amount)
 
+    def at(kwh: float, value: float, raw_kwh: float) -> str | None:
+        """'6.8 kWh at 32.9p': a line's energy and its average price."""
+        return f"{_kwh(kwh)} kWh at {_price(currency, value, raw_kwh)}" if kwh > 0 and raw_kwh > 0 else None
+
     source = "solar & battery" if has_battery else "solar"
     title = "SOLAR & BATTERY REPORT" if has_battery else "SOLAR REPORT"
 
     # Earnings and the bill share one label column, so the two blocks line up.
-    earnings = [("House load saved", _signed(currency, f.home)),
-                ("Exported", _signed(currency, f.exported))]
+    # A row's third part is a note on a line of its own under it: beside the
+    # amount it would not fit a phone.
+    earnings = [("House load saved", _signed(currency, f.home), at(f.home_kwh, t.home_value, t.home_supplied)),
+                ("Exported", _signed(currency, f.exported), None)]
     if f.imported != 0:
-        earnings.append(("Battery charging", _signed(currency, -f.imported)))
-    earnings_total = ("Earnings", money(f.total))
-    bill = [("Imported", money(f.bought)), ("Exported", money(-f.exported))]
+        earnings.append(("Battery charging", _signed(currency, -f.imported), None))
+    earnings_total = ("Earnings", money(f.total), _vs(money(previous.earnings), previous) if previous else None)
+    bill = [("Imported", money(f.bought), at(f.import_kwh, f.bought_value, f.bought_kwh)),
+            ("Exported", money(-f.exported), at(f.export_kwh, f.sold_value, f.sold_kwh))]
     standing_charge = 0.0
     if standing is not None:
         standing_charge = _p(standing)
-        bill.append(("Standing charge", money(standing_charge)))
-    bill_total = ("Bill", money(_p(f.bought - f.exported + standing_charge)))
+        bill.append(("Standing charge", money(standing_charge), None))
+    bill_total = ("Bill", money(_p(f.bought - f.exported + standing_charge)),
+                  _vs(money(previous.bill), previous) if previous else None)
 
     every = [*earnings, earnings_total, *bill, bill_total]
     # One space more than the longest label, so the signs stand clear of it.
-    label_width = max(len(label) for label, _ in every) + 1
-    amount_width = max(len(amount) for _, amount in every)
+    label_width = max(len(label) for label, _, _ in every) + 1
+    amount_width = max(len(amount) for _, amount, _ in every)
 
-    def sum_block(parts: list[tuple[str, str]], total_row: tuple[str, str]) -> str:
-        rows = [f"{label.ljust(label_width)} {amount.rjust(amount_width)}" for label, amount in parts]
+    def sum_block(parts: list[tuple[str, str, str | None]], total_row: tuple[str, str, str | None]) -> str:
+        rows = []
+        for label, amount, note in parts:
+            rows.append(f"{label.ljust(label_width)} {amount.rjust(amount_width)}")
+            if note:
+                rows.append(f"  {note}")
         rows.append(" " * (label_width + 1) + "─" * amount_width)
         rows.append(f"{total_row[0].ljust(label_width)} {total_row[1].rjust(amount_width)}")
+        if total_row[2]:
+            rows.append(f"  {total_row[2]}")
         return "\n".join(rows)
 
     # Where the energy went: each row a source, each column where it went,
@@ -636,6 +706,52 @@ def render_tables(
                   price(t.battery_export_value, t.battery_to_grid) if f.b2g > 0 else NONE_CELL,
                   cash(f.battery_sold)]]
 
+    def versus(shown: str) -> str:
+        return f" ({_vs(shown, previous)})" if previous is not None else ""
+
+    # Under the Energy table: solar, the battery and the house.
+    energy_notes = [f"☀️ Solar: generated {_kwh(f.solar)} kWh"
+                    + versus(f"{_kwh(previous.solar)} kWh" if previous else "")
+                    + (f" with a power peak of {peak}" if peak else "")]
+    stored = _stored(f, levels, capacity) if has_battery else None
+    if has_battery:
+        battery = [f"charged {_kwh(f.charged)} kWh", f"discharged {_kwh(f.supplied)} kWh"]
+        # A peak only there as the period began was not reached in it.
+        if charge_peak is not None and charge_peak[1] is not None:
+            reached = _when(charge_peak[1], end)
+            battery.append(f"full at {reached}" if charge_peak[0] >= 100
+                           else f"peak {_percent(charge_peak[0])} at {reached}")
+        energy_notes.append("🔋 Battery: " + ", ".join(battery))
+        if capacity and f.supplied > 0:
+            energy_notes.append(f"🔄 {f.supplied / capacity:.1f} cycles "
+                                f"({_kwh(f.supplied)} kWh out of a {capacity:g} kWh battery)")
+        if stored is not None and stored[1] > 0 and f.supplied > 0:
+            lost = stored[1]
+            trip = round(100 * f.supplied / (f.supplied + lost))
+            energy_notes.append(f"🌡️ About {_kwh(lost)} kWh lost in charging and discharging "
+                                f"(round trip about {trip}%)")
+    energy_notes.append(f"🏠 House load: {_kwh(f.house)} kWh"
+                        + versus(f"{_kwh(previous.house)} kWh" if previous else ""))
+    if f.house > 0:
+        energy_notes.append(f"🏠 {t.covered:.0f}% of the house ran on {source}")
+
+    # Under the Grid prices table: what the battery bought and sold at.
+    grid_notes = []
+    spread = _spread(currency, t) if has_battery else None
+    if spread is not None:
+        bought_at, sold_at, gap_value = spread
+        gap = _rate_text(currency, abs(gap_value))
+        shown = (f"{_article(gap)} {gap} spread" if gap_value >= 0 else f"{gap} less than it cost")
+        if previous is not None and previous.spread is not None:
+            shown += versus(_rate_text(currency, previous.spread))
+        grid_notes.append(f"💹 Bought at {_rate_text(currency, bought_at)}, "
+                          f"sold at {_rate_text(currency, sold_at)}{_sold_when(currency, sales, t)}: {shown}")
+    # Octopoints over a day only when some were earned in it: they arrive days
+    # after the saving session, so most days nothing moves.
+    if points is not None and (period != "daily" or round(points[1]) > 0):
+        grid_notes.append("🐙 Octopoints: "
+                          + _points_text(points, points_per_pound, money, period, rolling))
+
     # Each table a <pre> block, straight after its heading: Telegram shows a
     # block on a line of its own, so a line break before one would leave an
     # empty line. Inline <code> would avoid the "copy" bar desktop Telegram
@@ -650,51 +766,12 @@ def render_tables(
         "",
         f"<b>⚡ Energy</b><pre>{_table(flows, label_gap=0)}</pre>",
         "",
+        *energy_notes,
+        "",
         f"<b>💱 Grid prices</b><pre>{_table(grid, min_width=6)}</pre>",
     ]
-
-    highlights = [f"☀️ Solar: generated {_kwh(f.solar)} kWh"
-                  + (f" with a power peak of {peak}" if peak else "")]
-    stored = _stored(f, levels, capacity) if has_battery else None
-    if has_battery:
-        battery = []
-        if levels is not None:
-            battery.append(f"{_percent(levels[0])} → {_percent(levels[1])}")
-        # A low or a peak only there as the period began is the start level,
-        # shown already.
-        if low is not None and low[1] is not None:
-            battery.append(f"lowest {_percent(low[0])} at {_when(low[1], end)}")
-        if charge_peak is not None and charge_peak[1] is not None:
-            reached = _when(charge_peak[1], end)
-            battery.append(f"full at {reached}" if charge_peak[0] >= 100
-                           else f"peak {_percent(charge_peak[0])} at {reached}")
-        if battery:
-            highlights.append("🔋 Battery " + ", ".join(battery))
-        if capacity and f.supplied > 0:
-            highlights.append(f"🔄 {f.supplied / capacity:.1f} cycles "
-                              f"({_kwh(f.supplied)} kWh out of a {capacity:g} kWh battery)")
-    if f.house > 0:
-        highlights.append(f"🏠 {t.covered:.0f}% of the house ran on {source}")
-    if has_battery and f.g2b > 0 and f.b2g > 0:
-        # From the prices as printed, so the spread is their difference.
-        bought_at = _rate_shown(currency, t.battery_cost / t.grid_to_battery)
-        sold_at = _rate_shown(currency, t.battery_export_value / t.battery_to_grid)
-        spread = sold_at - bought_at
-        gap = _rate_text(currency, abs(spread))
-        highlights.append(f"💹 Bought at {_rate_text(currency, bought_at)}, "
-                          f"sold at {_rate_text(currency, sold_at)}{_sold_when(currency, sales, t)}: "
-                          + (f"{_article(gap)} {gap} spread" if spread >= 0 else f"{gap} less than it cost"))
-    if stored is not None and stored[1] > 0 and f.supplied > 0:
-        lost = stored[1]
-        trip = round(100 * f.supplied / (f.supplied + lost))
-        highlights.append(f"🌡️ About {_kwh(lost)} kWh lost in charging and discharging "
-                          f"(round trip about {trip}%)")
-    # Octopoints over a day only when some were earned in it: they arrive days
-    # after the saving session, so most days nothing moves.
-    if points is not None and (period != "daily" or round(points[1]) > 0):
-        highlights.append("🐙 Octopoints: "
-                          + _points_text(points, points_per_pound, money, period, rolling))
-    lines += ["", "<b>Highlights</b>", *highlights]
+    if grid_notes:
+        lines += ["", *grid_notes]
 
     lines += _arbitrage_lines(arbitrage, arbitrage_note, money)
     lines += _estimate_lines(t, period)

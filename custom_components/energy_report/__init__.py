@@ -75,10 +75,10 @@ from .const import (
     SIGNAL_SCHEDULE,
 )
 from .config_flow import delivery_method, notify_service_target
-from .message import charge_text, peak_text, render, render_tables
+from .message import Comparison, charge_text, comparison, peak_text, render, render_tables
 from .report import battery_sales, choose_fallback, first_low, first_peak, summarise
 from .statistics import collect, counter_over, level_at, level_history
-from .window import days_between, is_rolling, span_label, window_for
+from .window import COMPARE_DAYS, days_between, is_rolling, previous_window, span_label, window_for
 
 _LOGGER = logging.getLogger(__name__)
 PLATFORMS = [Platform.BUTTON, Platform.SELECT, Platform.SENSOR, Platform.SWITCH,
@@ -166,18 +166,13 @@ async def build(hass: HomeAssistant, entry: ConfigEntry, period: str,
             if wait > 0:
                 await asyncio.sleep(wait)
 
+    energy_ids = _energy_ids(config)
     collected = await collect(
         hass,
         start,
         end,
         PERIOD_RESOLUTION.get(period, "hour"),
-        {
-            "pv": config.get(CONF_PV_ENERGY),
-            "imported": config.get(CONF_IMPORT_ENERGY),
-            "exported": config.get(CONF_EXPORT_ENERGY),
-            "charged": config.get(CONF_CHARGE_ENERGY),
-            "discharged": config.get(CONF_DISCHARGE_ENERGY),
-        },
+        energy_ids,
         _own(hass, entry, "import_rate"),
         _own(hass, entry, "export_rate"),
         rate_divisor=1.0,  # the mirror already normalised the units
@@ -185,13 +180,7 @@ async def build(hass: HomeAssistant, entry: ConfigEntry, period: str,
         power_id=config.get(CONF_PV_POWER),
     )
 
-    divisor = RATE_SCALES[config.get(CONF_RATE_SCALE, DEFAULT_RATE_SCALE)]
-    fallbacks = (
-        _fallback_rate(hass, config.get(CONF_IMPORT_RATE), divisor, config.get(CONF_FALLBACK_IMPORT_RATE),
-                       [b.import_rate for b in collected.buckets]),
-        _fallback_rate(hass, config.get(CONF_EXPORT_RATE), divisor, config.get(CONF_FALLBACK_EXPORT_RATE),
-                       [b.export_rate for b in collected.buckets]),
-    )
+    fallbacks = _fallbacks(hass, config, collected.buckets)
     totals = summarise(collected.buckets, *fallbacks)
 
     arbitrage, note = _arbitrage(hass, config, collected.extras)
@@ -235,6 +224,7 @@ async def build(hass: HomeAssistant, entry: ConfigEntry, period: str,
         "points_per_pound": OCTOPOINTS_PER_POUND if currency == "£" else None,
         "rolling": is_rolling(period, start, end),
     }
+    previous = await _compare(hass, entry, config, period, start, end, has_battery, currency)
     span = span_label(period, start, end)
     text = render(
         totals, period, span,
@@ -246,6 +236,7 @@ async def build(hass: HomeAssistant, entry: ConfigEntry, period: str,
         totals, period, span,
         charge_peak=charge_peak, low=charge_low, end=dt_util.as_local(end), points=points,
         sales=battery_sales(collected.buckets, *fallbacks),
+        previous=previous,
         **shared,
     )
 
@@ -294,7 +285,71 @@ async def build(hass: HomeAssistant, entry: ConfigEntry, period: str,
         "estimated": totals.estimated,
         "buckets": totals.priced_buckets + totals.unpriced_buckets,
         "unpriced_buckets": totals.unpriced_buckets,
+        "previous": None if previous is None else {
+            "label": previous.label.lstrip(", "),
+            "total_earnings": round(previous.earnings, 4),
+            "bill_total": round(previous.bill, 4),
+            "solar": round(previous.solar, 3),
+            "house": round(previous.house, 3),
+            "spread": None if previous.spread is None else round(previous.spread, 4),
+        },
     }
+
+
+def _energy_ids(config: dict) -> dict[str, str | None]:
+    return {
+        "pv": config.get(CONF_PV_ENERGY),
+        "imported": config.get(CONF_IMPORT_ENERGY),
+        "exported": config.get(CONF_EXPORT_ENERGY),
+        "charged": config.get(CONF_CHARGE_ENERGY),
+        "discharged": config.get(CONF_DISCHARGE_ENERGY),
+    }
+
+
+def _fallbacks(hass: HomeAssistant, config: dict, buckets: list) -> tuple[float, float]:
+    """The import and export rates for buckets that recorded none."""
+    divisor = RATE_SCALES[config.get(CONF_RATE_SCALE, DEFAULT_RATE_SCALE)]
+    return (
+        _fallback_rate(hass, config.get(CONF_IMPORT_RATE), divisor, config.get(CONF_FALLBACK_IMPORT_RATE),
+                       [b.import_rate for b in buckets]),
+        _fallback_rate(hass, config.get(CONF_EXPORT_RATE), divisor, config.get(CONF_FALLBACK_EXPORT_RATE),
+                       [b.export_rate for b in buckets]),
+    )
+
+
+# How much of the stretch before a weekly or monthly report needs statistics
+# for the comparison to be shown: a week that is half missing would make this
+# one look twice as good.
+COMPARE_COVERAGE = 0.95
+RESOLUTION_STEP = {"5minute": timedelta(minutes=5), "hour": timedelta(hours=1)}
+
+
+async def _compare(hass: HomeAssistant, entry: ConfigEntry, config: dict, period: str,
+                   start: datetime, end: datetime, has_battery: bool, currency: str) -> Comparison | None:
+    """The same figures over the stretch before, to show beside this report's.
+
+    A daily report is set against the average day of the 7 before it, over
+    the days the statistics cover, at least one; a weekly or monthly report
+    against the period before, only when that is (nearly) all there. None
+    when there is not enough to go on - in the first days after installing."""
+    prev_start, prev_end, label = previous_window(period, start, end)
+    resolution = PERIOD_RESOLUTION.get(period, "hour")
+    collected = await collect(hass, prev_start, prev_end, resolution, _energy_ids(config),
+                              _own(hass, entry, "import_rate"), _own(hass, entry, "export_rate"),
+                              rate_divisor=1.0)
+    slots = (prev_end - prev_start) / RESOLUTION_STEP.get(resolution, timedelta(hours=1))
+    covered = len(collected.buckets) / slots if slots else 0.0
+    totals = summarise(collected.buckets, *_fallbacks(hass, config, collected.buckets))
+    if period == PERIOD_DAILY:
+        days = COMPARE_DAYS * min(covered, 1.0)
+        if days < 1:
+            return None
+        return comparison(totals, has_battery, label, per=days,
+                          standing=_standing_charge(hass, config, start, end), currency=currency)
+    if covered < COMPARE_COVERAGE:
+        return None
+    return comparison(totals, has_battery, label,
+                      standing=_standing_charge(hass, config, prev_start, prev_end), currency=currency)
 
 
 def _own(hass: HomeAssistant, entry: ConfigEntry, slug: str) -> str | None:

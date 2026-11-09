@@ -506,18 +506,28 @@ monthly report follows the same rule as the buttons: the calendar month on the
 
 ## Resolution
 
-| Period | Buckets | Why |
-|---|---|---|
-| Daily | 5 minutes | short-term statistics, kept for `purge_keep_days` |
-| Weekly | hourly | long-term statistics, kept forever |
-| Monthly | hourly | |
-
 Totals come out the same at any bucket size; the split and the pricing don't.
-On a flat tariff every resolution agrees. On a half-hourly tariff the daily
-report is exact, because every five-minute bucket falls within a single price.
-Weekly and monthly reports average within each hour, so a 30-minute grid charge
-in the cheap half of an hour is priced at that hour's average. Hourly is the
-finest resolution Home Assistant keeps long term, so they can't do better.
+On a half-hourly tariff an hourly bucket only has the hour's average price: the
+cheap rate starting at 00:30 makes 00:00-01:00 average halfway between the two,
+and a battery charges in the cheap half. Priced by the hour, a week of that
+read about 55p a day too dear.
+
+So every report is priced at five minutes wherever it can be:
+
+| Period | Read from |
+|---|---|
+| Daily | five-minute statistics |
+| Weekly, monthly and every comparison | the **hourly record** for the hours it holds; five-minute statistics for any hour it doesn't, while the recorder keeps them (`purge_keep_days`, ten days by default); hourly statistics only before that |
+
+The **hourly record** is kept by the integration itself. A couple of minutes
+past every hour, once that hour's five-minute statistics are in, it splits and
+prices them the way a daily report does and adds the hour's flows and money to
+statistics of its own, `energy_report:<entry id>_<field>`. Home Assistant keeps
+those for good, so a month from a year ago adds up the way its days did. They
+are external statistics, so there are no extra entities; they start as far
+back as the five-minute statistics went when you installed 1.8.0, are rebuilt
+from what's still kept if you point the integration at different energy
+sensors, and go when the integration is removed. They grow by 23 rows an hour.
 
 ## Testing
 

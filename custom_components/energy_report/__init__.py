@@ -7,16 +7,18 @@ import html
 import logging
 import re
 from datetime import datetime, time, timedelta
+from functools import partial
 
 import voluptuous as vol
 from homeassistant.components import persistent_notification
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
-from homeassistant.core import HomeAssistant, ServiceCall, ServiceResponse, SupportsResponse
+from homeassistant.core import HomeAssistant, ServiceCall, ServiceResponse, SupportsResponse, callback
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers.dispatcher import async_dispatcher_send
-from homeassistant.helpers.event import async_track_point_in_time
+from homeassistant.helpers.event import async_call_later, async_track_point_in_time, async_track_time_change
+from homeassistant.helpers.start import async_at_started
 from homeassistant.helpers.sun import get_astral_event_date
 from homeassistant.util import dt as dt_util
 
@@ -75,9 +77,11 @@ from .const import (
     SIGNAL_SCHEDULE,
 )
 from .config_flow import delivery_method, notify_service_target
+from .ledger import Ledger, LedgerRead
 from .message import Comparison, charge_text, comparison, peak_text, render, render_tables
-from .report import battery_sales, choose_fallback, first_low, first_peak, summarise
-from .statistics import collect, counter_over, level_at, level_history
+from .report import (add_totals, battery_sales, choose_fallback, first_low, first_peak, sales_by_time,
+                     sales_parts, summarise)
+from .statistics import MIXED, collect, counter_over, level_at, level_history
 from .window import COMPARE_DAYS, days_between, is_rolling, previous_window, span_label, window_for
 
 _LOGGER = logging.getLogger(__name__)
@@ -99,14 +103,49 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         # Renamed in 0.6.0. Only the default title is changed, never one the user
         # chose; entity IDs already registered stay as they are.
         hass.config_entries.async_update_entry(entry, title=NAME)
-    hass.data.setdefault(DOMAIN, {})[entry.entry_id] = {
-        "timers": {}, "next": {}, "config": options(entry), "preview": None,
+    runtime = hass.data.setdefault(DOMAIN, {})[entry.entry_id] = {
+        "timers": {}, "next": {}, "config": options(entry), "preview": None, "ledger": None,
     }
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+    # After the platforms, so the rate mirrors it prices from are registered.
+    runtime["ledger"] = ledger = _ledger(hass, entry)
     entry.async_on_unload(entry.add_update_listener(_updated))
     _register_services(hass)
     _schedule_all(hass, entry)
+    _keep_ledger(hass, entry, ledger)
     return True
+
+
+def _ledger(hass: HomeAssistant, entry: ConfigEntry) -> Ledger:
+    config = options(entry)
+    energy_ids = _energy_ids(config)
+    return Ledger(hass, entry.entry_id, energy_ids, _own(hass, entry, "import_rate"),
+                  _own(hass, entry, "export_rate"), partial(_fallbacks, hass, config),
+                  fingerprint=energy_ids)
+
+
+def _keep_ledger(hass: HomeAssistant, entry: ConfigEntry, ledger: Ledger) -> None:
+    """Bring the hourly record up to date a minute after Home Assistant has
+    started - out of the way of everything else starting - then a couple of
+    minutes past every hour, when the hour's last five-minute statistics are
+    in."""
+    async def catch_up(_now=None) -> None:
+        try:
+            await ledger.update()
+        except Exception:  # never let the record take the reports down with it
+            _LOGGER.exception("energy_report: could not update the hourly record")
+
+    @callback
+    def started(_hass: HomeAssistant) -> None:
+        entry.async_on_unload(async_call_later(hass, 60, catch_up))
+
+    entry.async_on_unload(async_at_started(hass, started))
+    entry.async_on_unload(async_track_time_change(hass, catch_up, minute=2, second=0))
+
+
+async def async_remove_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """Take the hourly record with the entry."""
+    await _ledger(hass, entry).remove()
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
@@ -166,22 +205,22 @@ async def build(hass: HomeAssistant, entry: ConfigEntry, period: str,
             if wait > 0:
                 await asyncio.sleep(wait)
 
-    energy_ids = _energy_ids(config)
-    collected = await collect(
-        hass,
-        start,
-        end,
-        PERIOD_RESOLUTION.get(period, "hour"),
-        energy_ids,
-        _own(hass, entry, "import_rate"),
-        _own(hass, entry, "export_rate"),
-        rate_divisor=1.0,  # the mirror already normalised the units
-        extra_ids={"arbitrage": config.get(CONF_ARBITRAGE_ENERGY)},
-        power_id=config.get(CONF_PV_POWER),
-    )
-
-    fallbacks = _fallbacks(hass, config, collected.buckets)
-    totals = summarise(collected.buckets, *fallbacks)
+    extra_ids = {"arbitrage": config.get(CONF_ARBITRAGE_ENERGY)}
+    if PERIOD_RESOLUTION.get(period, "hour") == "5minute":
+        # A day in five-minute buckets, every one still kept.
+        collected = await collect(
+            hass, start, end, "5minute", _energy_ids(config),
+            _own(hass, entry, "import_rate"), _own(hass, entry, "export_rate"),
+            rate_divisor=1.0,  # the mirror already normalised the units
+            extra_ids=extra_ids, power_id=config.get(CONF_PV_POWER),
+        )
+        fallbacks = _fallbacks(hass, config, collected.buckets)
+        totals = summarise(collected.buckets, *fallbacks)
+        sales = battery_sales(collected.buckets, *fallbacks)
+    else:
+        gathered = await _gather(hass, entry, config, start, end, extra_ids=extra_ids,
+                                 power_id=config.get(CONF_PV_POWER))
+        collected, totals, sales = gathered.collected, gathered.totals, gathered.sales
 
     arbitrage, note = _arbitrage(hass, config, collected.extras)
     has_battery = bool(config.get(CONF_CHARGE_ENERGY) or config.get(CONF_DISCHARGE_ENERGY))
@@ -235,7 +274,7 @@ async def build(hass: HomeAssistant, entry: ConfigEntry, period: str,
     tables = render_tables(
         totals, period, span,
         charge_peak=charge_peak, low=charge_low, end=dt_util.as_local(end), points=points,
-        sales=battery_sales(collected.buckets, *fallbacks),
+        sales=sales,
         previous=previous,
         **shared,
     )
@@ -321,7 +360,41 @@ def _fallbacks(hass: HomeAssistant, config: dict, buckets: list) -> tuple[float,
 # for the comparison to be shown: a week that is half missing would make this
 # one look twice as good.
 COMPARE_COVERAGE = 0.95
-RESOLUTION_STEP = {"5minute": timedelta(minutes=5), "hour": timedelta(hours=1)}
+
+
+class Gathered:
+    """A stretch's totals at the best resolution there is."""
+
+    def __init__(self, collected, totals, sales, seconds: float) -> None:
+        self.collected = collected
+        self.totals = totals
+        self.sales = sales
+        # How much of the stretch the statistics cover.
+        self.seconds = seconds
+
+
+def _hour(moment: datetime) -> float:
+    return dt_util.as_utc(moment).replace(minute=0, second=0, microsecond=0).timestamp()
+
+
+async def _gather(hass: HomeAssistant, entry: ConfigEntry, config: dict, start: datetime, end: datetime,
+                  extra_ids: dict | None = None, power_id: str | None = None) -> Gathered:
+    """Totals over a stretch from the hourly record wherever it has the hours,
+    then five-minute statistics while the recorder keeps them, and hourly
+    statistics only before that - an hour of which is priced at the hour's
+    average, wrong for a half-hourly tariff."""
+    runtime = hass.data.get(DOMAIN, {}).get(entry.entry_id) or {}
+    ledger = runtime.get("ledger")
+    recorded = await ledger.read(start, end) if ledger is not None else LedgerRead()
+    collected = await collect(hass, start, end, MIXED, _energy_ids(config),
+                              _own(hass, entry, "import_rate"), _own(hass, entry, "export_rate"),
+                              rate_divisor=1.0, extra_ids=extra_ids, power_id=power_id)
+    rest = [b for b in collected.buckets if b.start is None or _hour(b.start) not in recorded.hours]
+    fallbacks = _fallbacks(hass, config, rest)
+    totals = add_totals(recorded.totals, summarise(rest, *fallbacks))
+    sales = sales_by_time(recorded.sales + sales_parts(rest, *fallbacks))
+    seconds = 3600 * len(recorded.hours) + sum(b.seconds for b in rest)
+    return Gathered(collected, totals, sales, seconds)
 
 
 async def _compare(hass: HomeAssistant, entry: ConfigEntry, config: dict, period: str,
@@ -333,19 +406,18 @@ async def _compare(hass: HomeAssistant, entry: ConfigEntry, config: dict, period
     against the period before, only when that is (nearly) all there. None
     when there is not enough to go on - in the first days after installing."""
     prev_start, prev_end, label = previous_window(period, start, end)
-    resolution = PERIOD_RESOLUTION.get(period, "hour")
-    collected = await collect(hass, prev_start, prev_end, resolution, _energy_ids(config),
-                              _own(hass, entry, "import_rate"), _own(hass, entry, "export_rate"),
-                              rate_divisor=1.0)
-    slots = (prev_end - prev_start) / RESOLUTION_STEP.get(resolution, timedelta(hours=1))
-    covered = len(collected.buckets) / slots if slots else 0.0
-    totals = summarise(collected.buckets, *_fallbacks(hass, config, collected.buckets))
+    gathered = await _gather(hass, entry, config, prev_start, prev_end)
+    span = (prev_end - prev_start).total_seconds()
+    covered = gathered.seconds / span if span else 0.0
+    totals = gathered.totals
     if period == PERIOD_DAILY:
         days = COMPARE_DAYS * min(covered, 1.0)
         if days < 1:
             return None
+        # A day's standing charge, whatever the length of the report itself.
+        standing = _standing_charge(hass, config, prev_start, prev_end)
         return comparison(totals, has_battery, label, per=days,
-                          standing=_standing_charge(hass, config, start, end), currency=currency)
+                          standing=None if standing is None else standing / COMPARE_DAYS, currency=currency)
     if covered < COMPARE_COVERAGE:
         return None
     return comparison(totals, has_battery, label,

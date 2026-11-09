@@ -39,11 +39,11 @@ Two things are wrong if worked out over a whole period:
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, fields
 from datetime import datetime
 
-__all__ = ["Bucket", "Totals", "battery_sales", "choose_fallback", "first_peak", "scheduled_price",
-           "summarise"]
+__all__ = ["Bucket", "Totals", "add_totals", "battery_sales", "choose_fallback", "first_peak",
+           "sales_by_time", "sales_parts", "scheduled_price", "summarise"]
 
 
 @dataclass(frozen=True)
@@ -65,6 +65,9 @@ class Bucket:
     # When the bucket began, in local time, for splitting a period by time of
     # day. None where it is not known.
     start: datetime | None = None
+    # How long it covers, in seconds: 300 for five-minute statistics, 3600
+    # for hourly. 0 where it is not known.
+    seconds: int = 0
 
 
 @dataclass
@@ -137,6 +140,15 @@ class Totals:
     @property
     def fully_estimated(self) -> bool:
         return self.unpriced_buckets > 0 and self.priced_buckets == 0
+
+
+def add_totals(*parts: Totals) -> Totals:
+    """Totals added field by field: a period from pieces summarised apart."""
+    out = Totals()
+    for part in parts:
+        for f in fields(Totals):
+            setattr(out, f.name, getattr(out, f.name) + getattr(part, f.name))
+    return out
 
 
 def _number(value: float | None) -> float:
@@ -281,12 +293,32 @@ def battery_sales(buckets: list[Bucket], fallback_import_rate: float = 0.0,
     (when, kWh, value), from the same split as summarise(), so the parts add up
     to its battery_to_grid and battery_export_value. Buckets with no start are
     left out; times of day with nothing sold are not listed."""
+    return sales_by_time(sales_parts(buckets, fallback_import_rate, fallback_export_rate))
+
+
+def sales_parts(buckets: list[Bucket], fallback_import_rate: float = 0.0,
+                fallback_export_rate: float = 0.0) -> list[tuple[datetime, float, float]]:
+    """Each bucket's battery export and what it earned, (start, kWh, value),
+    for sales_by_time(). Buckets with no start are left out."""
+    parts = []
+    for bucket in buckets:
+        if bucket.start is not None:
+            one = summarise([bucket], fallback_import_rate, fallback_export_rate)
+            if one.battery_to_grid > 0:
+                parts.append((bucket.start, one.battery_to_grid, one.battery_export_value))
+    return parts
+
+
+def sales_by_time(parts: list[tuple[datetime, float, float]]) -> list[tuple[str, float, float]]:
+    """(when, kWh, value) for each time of day, from (start, kWh, value) parts -
+    a bucket's or an hour's battery export - in clock order, leaving out the
+    times of day with nothing sold."""
     sales = []
     for when, first, last in TIMES_OF_DAY:
-        part = summarise([b for b in buckets if b.start is not None and first <= b.start.hour < last],
-                         fallback_import_rate, fallback_export_rate)
-        if part.battery_to_grid > 0:
-            sales.append((when, part.battery_to_grid, part.battery_export_value))
+        kwh = sum(k for start, k, _ in parts if first <= start.hour < last)
+        value = sum(v for start, _, v in parts if first <= start.hour < last)
+        if kwh > 0:
+            sales.append((when, kwh, value))
     return sales
 
 

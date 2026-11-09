@@ -809,3 +809,87 @@ async def test_comparison_with_the_week_before(hass: HomeAssistant, world) -> No
         blocking=True, return_response=True)
     assert earlier["previous"] is None
     assert " vs " not in earlier["message_tables"]
+
+
+async def test_half_hourly_prices_survive_weeks_and_months(hass: HomeAssistant, world) -> None:
+    """The battery charging in the cheap half of an hour is priced at the cheap
+    rate in a weekly report, not at the hour's average: from five-minute
+    statistics while the recorder has them, and from the hourly record after."""
+    from homeassistant.components.recorder import get_instance
+    from homeassistant.components.recorder.db_schema import StatisticsShortTerm
+    from homeassistant.components.recorder.models import StatisticMeanType
+    from homeassistant.components.recorder.statistics import (
+        async_import_statistics,
+        statistics_during_period,
+    )
+    from homeassistant.helpers import entity_registry as er
+    from pytest_homeassistant_custom_component.components.recorder.common import (
+        async_wait_recording_done,
+    )
+
+    entry = await _setup(hass, delivery="none")
+    rate_id = er.async_get(hass).async_get_entity_id("sensor", DOMAIN, f"{entry.entry_id}_import_rate")
+    hour = dt_util.utcnow().replace(minute=0, second=0, microsecond=0) - timedelta(hours=3)
+    older = hour - timedelta(hours=2)
+
+    def meta(entity_id, energy):
+        return {"mean_type": StatisticMeanType.NONE if energy else StatisticMeanType.ARITHMETIC,
+                "has_sum": energy, "name": None, "source": "recorder", "statistic_id": entity_id,
+                "unit_class": "energy" if energy else None, "unit_of_measurement": "kWh" if energy else None}
+
+    # Hourly: 3 kWh into the battery from the grid in each hour, at the hour's
+    # average price - half 34.53p, half 9.4p.
+    hourly = [(older - timedelta(hours=1), 0.0), (older, 3.0), (hour - timedelta(hours=1), 3.0), (hour, 6.0)]
+    for entity_id in ("sensor.grid_in", "sensor.batt_in"):
+        async_import_statistics(hass, meta(entity_id, True),
+                                [{"start": at, "state": total, "sum": total} for at, total in hourly])
+    async_import_statistics(hass, meta(rate_id, False),
+                            [{"start": at, "mean": 0.21965} for at, _ in hourly])
+    # Five minutes, for the later hour only: nothing until half past, then
+    # half a kWh every five minutes at the cheap rate.
+    slots = [hour + timedelta(minutes=5 * n) for n in range(-1, 12)]
+    sums = [0.5 * max(n - 5, 0) for n in range(-1, 12)]
+    for entity_id in ("sensor.grid_in", "sensor.batt_in"):
+        get_instance(hass).async_import_statistics(
+            meta(entity_id, True), [{"start": at, "state": s, "sum": s} for at, s in zip(slots, sums)],
+            StatisticsShortTerm)
+    get_instance(hass).async_import_statistics(
+        meta(rate_id, False), [{"start": at, "mean": 0.3453 if at < hour + timedelta(minutes=30) else 0.094}
+                               for at in slots], StatisticsShortTerm)
+    await async_wait_recording_done(hass)
+
+    async def weekly():
+        return await hass.services.async_call(
+            DOMAIN, "generate", {"period": "weekly", "start": older - timedelta(hours=3),
+                                 "end": hour + timedelta(hours=2)}, blocking=True, return_response=True)
+
+    # Not yet recorded: the later hour from its five minutes, the older one
+    # from its hour - and the later hour's own hourly row not counted again.
+    first = await weekly()
+    assert first["grid_to_battery"] == 6.0
+    assert first["battery_cost"] == pytest.approx(3 * 0.21965 + 3 * 0.094, abs=1e-4)
+
+    # Recorded: the hour priced at five minutes, kept for good.
+    ledger = hass.data[DOMAIN][entry.entry_id]["ledger"]
+    assert await ledger.update() == 1
+    await async_wait_recording_done(hass)
+    cost_id = f"{DOMAIN}:{entry.entry_id.lower()}_battery_cost"
+    rows = await get_instance(hass).async_add_executor_job(
+        statistics_during_period, hass, hour - timedelta(hours=1), hour + timedelta(hours=2), {cost_id},
+        "hour", None, {"change"})
+    assert [(r["start"], round(r["change"], 4)) for r in rows[cost_id]] == [(hour.timestamp(), 0.282)]
+    assert (await weekly())["battery_cost"] == pytest.approx(first["battery_cost"], abs=1e-4)
+    # Nothing new to add a second time.
+    assert await ledger.update() == 0
+
+    # Pointed at other sensors, the record starts again from what's still kept.
+    ledger.fingerprint = "other sensors"
+    assert await ledger.update() == 1
+
+    # Removing the entry takes the record with it.
+    assert await hass.config_entries.async_remove(entry.entry_id)
+    await async_wait_recording_done(hass)
+    rows = await get_instance(hass).async_add_executor_job(
+        statistics_during_period, hass, hour - timedelta(hours=1), hour + timedelta(hours=2), {cost_id},
+        "hour", None, {"change"})
+    assert rows == {}

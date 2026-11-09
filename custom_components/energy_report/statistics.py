@@ -15,6 +15,7 @@ battery" to "from the grid" when the two are compared.
 from __future__ import annotations
 
 import logging
+import math
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from functools import partial
@@ -29,7 +30,12 @@ from .report import Bucket
 
 _LOGGER = logging.getLogger(__name__)
 
-__all__ = ["Collected", "collect", "counter_over", "level_at", "level_history"]
+__all__ = ["MIXED", "Collected", "collect", "counter_over", "level_at", "level_history"]
+
+# A resolution for collect(): five-minute statistics wherever the recorder still
+# keeps them (purge_keep_days, ten days by default), hourly before that.
+MIXED = "mixed"
+STEP_SECONDS = {"5minute": 300, "hour": 3600}
 
 
 @dataclass
@@ -74,6 +80,12 @@ async def collect(
     returned alongside - for counters that are not part of the energy flows,
     such as a planner's running savings total. power_id, if given, supplies the
     highest power seen in the period and when.
+
+    resolution is "5minute", "hour" or MIXED. Prices change on the half hour on
+    most time-of-use tariffs, and an hourly bucket only has the hour's average
+    price: energy bought in the cheap half of 00:00-01:00 would be priced
+    halfway to the dear one. MIXED takes five-minute buckets for as much of the
+    period as the recorder still has them, and hours only before that.
     """
     extra_ids = {k: v for k, v in (extra_ids or {}).items() if v}
     energy = {eid for eid in energy_ids.values() if eid}
@@ -83,18 +95,38 @@ async def collect(
     if not wanted:
         return Collected()
 
-    # One call for everything: energy counters answer "change", rate sensors
-    # "mean", the power sensor "max", each with a null for what does not apply.
-    stats = await get_instance(hass).async_add_executor_job(
-        statistics_during_period,
-        hass,
-        start,
-        end,
-        wanted,
-        resolution,
-        {"energy": "kWh"},
-        {"change", "mean", "max"},
-    )
+    def fetch(period: str) -> dict[str, list[dict]]:
+        # One call for everything: energy counters answer "change", rate
+        # sensors "mean", the power sensor "max", each with a null for what
+        # does not apply.
+        return statistics_during_period(hass, start, end, wanted, period, {"energy": "kWh"},
+                                        {"change", "mean", "max"})
+
+    instance = get_instance(hass)
+    seconds: dict[float, int] = {}
+    if resolution != MIXED:
+        stats = await instance.async_add_executor_job(fetch, resolution)
+        for rows in stats.values():
+            for row in rows:
+                if (slot := _bucket_key(row)) is not None:
+                    seconds[slot] = STEP_SECONDS.get(resolution, 0)
+    else:
+        hourly = await instance.async_add_executor_job(fetch, "hour")
+        fine = await instance.async_add_executor_job(fetch, "5minute")
+        cut = _cut(start.timestamp(), end.timestamp(), energy, hourly, fine)
+        stats = {}
+        for entity_id in wanted:
+            rows = [r for r in hourly.get(entity_id) or [] if (_bucket_key(r) or 0.0) < cut]
+            rows += [r for r in fine.get(entity_id) or [] if (_bucket_key(r) or 0.0) >= cut]
+            if rows:
+                stats[entity_id] = rows
+            for row in rows:
+                if (slot := _bucket_key(row)) is not None:
+                    seconds[slot] = 300 if slot >= cut else 3600
+        # The extras are only ever summed whole, which hours do as well.
+        for entity_id in set(extra_ids.values()):
+            if entity_id in hourly:
+                stats[entity_id] = hourly[entity_id]
 
     missing = wanted - set(stats)
     if missing:
@@ -137,6 +169,7 @@ async def collect(
                 import_rate=rate(import_rate, slot),
                 export_rate=rate(export_rate, slot),
                 start=dt_util.as_local(dt_util.utc_from_timestamp(slot)),
+                seconds=seconds.get(slot, 0),
             )
             for slot in slots
         ],
@@ -156,6 +189,32 @@ async def collect(
             result.peak_at = dt_util.as_local(dt_util.utc_from_timestamp(slot))
 
     return result
+
+
+def _cut(start: float, end: float, energy: set[str], hourly: dict[str, list[dict]],
+         fine: dict[str, list[dict]]) -> float:
+    """Where a MIXED fetch turns from hours to five minutes, as a timestamp.
+
+    The first five-minute row the recorder still has can not be trusted: the
+    one before it is gone, and its change is worked out from nothing - its
+    whole running sum. So the turn is at the first full hour after it, unless
+    the rows run from the very start. Every energy counter must have reached
+    it; one with hours and no five-minute rows at all keeps the whole period
+    hourly."""
+    firsts = []
+    for entity_id in energy:
+        keys = [k for k in (_bucket_key(r) for r in fine.get(entity_id) or []) if k is not None]
+        if keys:
+            firsts.append(min(keys))
+        elif hourly.get(entity_id):
+            return end
+    if not firsts:
+        return end
+    first = max(firsts)
+    if first <= start:
+        return start
+    # Past the first row, then up to the hour.
+    return min(math.ceil((first + 1) / 3600) * 3600, end)
 
 
 async def level_history(hass: HomeAssistant, entity_id: str, start: datetime,
